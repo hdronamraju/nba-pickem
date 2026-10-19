@@ -168,6 +168,7 @@ function render() {
   $('sources').innerHTML = `Lines: ${esc(S.linesSource)} &middot; Wins: <a href="${esc(S.winsSourceUrl)}" rel="noopener">ESPN standings</a> &middot; Bets are between friends`;
   if (!joined) return;
 
+  document.title = `Pick'em: ${S.me.name}`;
   const link = `${location.origin}/?me=${token}`;
   if ($('mylink').value !== link) $('mylink').value = link;
 
@@ -236,6 +237,28 @@ bet.addEventListener('input', () => {
   store.set(BET_KEY, betText);
   bet.setAttribute('aria-invalid', String(cents() === null));
   if (S?.me) render();
+});
+
+function bookmarkHint() {
+  const ua = navigator.userAgent;
+  const mac = /Mac/.test(navigator.platform || '') || /Macintosh/.test(ua);
+  if (/iPhone|iPad|iPod/.test(ua) || (mac && navigator.maxTouchPoints > 1)) return 'Tap the Share button, then Add Bookmark (or Add to Home Screen).';
+  if (/Android/.test(ua)) return 'Tap the ⋮ menu, then the star (or Add to Home screen).';
+  if (mac) return 'Press ⌘D now to bookmark it.';
+  return 'Press Ctrl+D now to bookmark it.';
+}
+
+let cleanTimer;
+$('bookmarklink').addEventListener('click', () => {
+  // Put the personal link in the address bar so the browser's own bookmark captures it,
+  // then take it back out so a copied address bar never carries the secret.
+  history.replaceState(null, '', `/?me=${token}`);
+  $('bookmark-hint').textContent = bookmarkHint();
+  clearTimeout(cleanTimer);
+  cleanTimer = setTimeout(() => {
+    history.replaceState(null, '', location.pathname);
+    $('bookmark-hint').textContent = '';
+  }, 60_000);
 });
 
 $('mylink').addEventListener('focus', (e) => e.target.select());
