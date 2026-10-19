@@ -40,7 +40,7 @@ fly auth login
 
 # from a clone of this repo
 fly launch --no-deploy --ha=false --copy-config   # pick a unique app name; say No to Postgres/Redis
-fly volumes create pickem_data --size 1 --region <the region fly launch chose> --count 1
+fly volumes create pickem_data --size 1 --region ams --count 1
 fly secrets set ADMIN_PASSWORD='a-long-password'
 fly deploy
 ```
