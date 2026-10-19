@@ -123,7 +123,6 @@ function names(ids, nameOf) {
 const LOCK_ICON = '<svg class="team__lock" viewBox="0 0 24 24" aria-hidden="true"><path class="shackle" d="M7 11V8a5 5 0 0 1 10 0v3"/><rect x="5" y="11" width="14" height="10" rx="2"/></svg>';
 
 function resultCard(t, nameOf) {
-  const mine = S.me.picks[t.team];
   const locked = S.phase === 'locked';
   const animating = locked && Date.now() < lockAnimUntil;
   const style = animating ? ` style="--i:${cardIndex}"` : '';
@@ -137,8 +136,6 @@ function resultCard(t, nameOf) {
       </div>
       ${row(locked ? 'Bet' : 'Bet (so far)', t.on ? 'On' : 'Off', t.on ? 'is-on' : 'is-off')}
       ${row('Pool', t.on ? formatMoney(t.pool) : '--')}
-      ${row('You', mine ?? '--')}
-      ${row('Wins', t.wins ?? '--')}
       ${t.on && locked ? row('Leads', t.leader ?? '--') : ''}
       ${sidesBlock(t, nameOf, false)}
       ${locked ? LOCK_ICON : ''}
