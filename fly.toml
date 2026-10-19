@@ -1,0 +1,32 @@
+# Edit `app` to the name you pick during `fly launch` (it must be unique across Fly).
+app = "nba-pickem"
+primary_region = "iad"
+
+[build]
+
+[env]
+  PORT = "3000"
+  DATA_DIR = "/data"
+
+# The JSON file on this volume is the database: it holds every join, pick and lock.
+[mounts]
+  source = "pickem_data"
+  destination = "/data"
+
+[http_service]
+  internal_port = 3000
+  force_https = true
+  auto_stop_machines = "off"   # never sleep: keeps live updates connected
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [[http_service.checks]]
+    method = "GET"
+    path = "/api/state"
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "10s"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"

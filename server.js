@@ -5,6 +5,7 @@ import crypto from 'node:crypto';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { TEAMS, LINES_SOURCE, WINS_SOURCE_URL } from './shared/teams.js';
 import { fetchWins as fetchEspnWins } from './shared/espn.js';
+import { parseLines, linesToText } from './shared/lines.js';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const MAX_PLAYERS = 10;
@@ -16,11 +17,12 @@ const TYPES = {
 };
 
 export function createApp({
-  dataFile = path.join(ROOT, 'data', 'state.json'),
+  dataFile = path.join(process.env.DATA_DIR || path.join(ROOT, 'data'), 'state.json'),
+  adminPassword = process.env.ADMIN_PASSWORD,
   fetchWins = () => fetchEspnWins(TEAMS.map((t) => t.team)),
   now = () => Date.now(),
 } = {}) {
-  let state = { players: [], wins: {}, winsMeta: { updatedAt: null, lastAttempt: null, error: null } };
+  let state = { players: [], lines: TEAMS, linesSource: LINES_SOURCE, wins: {}, winsMeta: { updatedAt: null, lastAttempt: null, error: null } };
   try { state = { ...state, ...JSON.parse(fs.readFileSync(dataFile, 'utf8')) }; } catch { /* first run */ }
 
   const clients = new Set();
@@ -42,8 +44,8 @@ export function createApp({
   function publicState(viewer) {
     const locked = state.players.filter((p) => p.lockedAt);
     return {
-      lines: TEAMS,
-      linesSource: LINES_SOURCE,
+      lines: state.lines,
+      linesSource: state.linesSource,
       winsSourceUrl: WINS_SOURCE_URL,
       wins: state.wins,
       winsMeta: state.winsMeta,
@@ -96,7 +98,35 @@ export function createApp({
   };
   const fail = (status, message) => Object.assign(new Error(message), { status });
 
+
+  function checkAdmin(req) {
+    if (!adminPassword) throw fail(503, 'Admin is disabled: set ADMIN_PASSWORD on the server.');
+    const given = Buffer.from(String(req.headers['x-admin-password'] ?? ''));
+    const want = Buffer.from(adminPassword);
+    const ok = given.length === want.length && crypto.timingSafeEqual(given, want);
+    if (!ok) return new Promise((_, reject) => setTimeout(() => reject(fail(401, 'Wrong admin password.')), 400));
+  }
+
+  async function adminApi(req, res, url) {
+    await checkAdmin(req);
+    if (req.method === 'GET') {
+      return send(res, 200, { text: linesToText(state.lines), source: state.linesSource, frozen: state.players.some((p) => p.lockedAt) });
+    }
+    if (req.method === 'PUT') {
+      const body = await readJson(req);
+      if (state.players.some((p) => p.lockedAt)) throw fail(409, 'Someone has already locked in, so the lines are frozen.');
+      const { lines, errors } = parseLines(body.text);
+      if (errors.length) return send(res, 422, { error: 'Fix the lines below.', errors });
+      state.lines = lines;
+      state.linesSource = String(body.source ?? '').trim().slice(0, 60) || 'Custom';
+      commit();
+      return send(res, 200, { saved: lines.length, source: state.linesSource });
+    }
+    throw fail(405, 'Method not allowed.');
+  }
+
   async function api(req, res, url) {
+    if (url.pathname === '/api/admin/lines') return adminApi(req, res, url);
     const token = req.headers['x-token'] || url.searchParams.get('token') || undefined;
 
     if (req.method === 'GET' && url.pathname === '/api/state') {
@@ -134,7 +164,7 @@ export function createApp({
 
     if (req.method === 'POST' && url.pathname === '/api/lock') {
       if (me.lockedAt) throw fail(403, 'Already locked.');
-      if (Object.keys(me.picks).length !== TEAMS.length) throw fail(400, `Pick all ${TEAMS.length} teams first.`);
+      if (Object.keys(me.picks).length !== state.lines.length) throw fail(400, `Pick all ${state.lines.length} teams first.`);
       me.lockedAt = now();
       commit();
       return send(res, 200, publicState(me));
@@ -146,6 +176,7 @@ export function createApp({
   function serveStatic(req, res, url) {
     let rel = decodeURIComponent(url.pathname);
     if (rel === '/') rel = '/index.html';
+    if (rel === '/admin') rel = '/admin.html';
     const base = rel.startsWith('/shared/') ? ROOT : path.join(ROOT, 'public');
     const file = path.normalize(path.join(base, rel));
     if (!file.startsWith(base + path.sep) || !fs.existsSync(file) || !fs.statSync(file).isFile()) {

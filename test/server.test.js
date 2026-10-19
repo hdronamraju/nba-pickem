@@ -11,16 +11,16 @@ async function boot(opts = {}) {
   const app = createApp({ dataFile: path.join(dir, 'state.json'), ...opts });
   await new Promise((r) => app.server.listen(0, r));
   const base = `http://localhost:${app.server.address().port}`;
-  const call = async (method, url, body, token) => {
+  const call = async (method, url, body, token, headers = {}) => {
     const res = await fetch(base + url, {
-      method, headers: { 'content-type': 'application/json', ...(token ? { 'x-token': token } : {}) },
+      method, headers: { 'content-type': 'application/json', ...(token ? { 'x-token': token } : {}), ...headers },
       body: body ? JSON.stringify(body) : undefined,
     });
     return { status: res.status, body: await res.json().catch(() => null) };
   };
   const join = async (name) => (await call('POST', '/api/join', { name })).body.token;
   const pickAll = async (token, side) => { for (const t of TEAMS) await call('PUT', '/api/picks', { team: t.team, side }, token); };
-  return { app, call, join, pickAll, close: () => app.server.close() };
+  return { app, base, call, join, pickAll, close: () => app.server.close() };
 }
 
 test('30 teams are seeded', () => assert.equal(TEAMS.length, 30));
@@ -84,4 +84,38 @@ test('wins refresh keeps last good data when the fetch fails', async (t) => {
   await s.app.refreshWins();
   assert.equal(s.app.state().wins['Miami Heat'], 3);
   assert.equal(s.app.state().winsMeta.error, 'boom');
+});
+
+const lineText = (over = {}) => TEAMS.map((t) => `${t.team}, ${over[t.team] ?? t.line}`).join('\n');
+
+test('admin is disabled without a password and rejects a wrong one', async (t) => {
+  const off = await boot({ adminPassword: undefined }); t.after(off.close);
+  assert.equal((await off.call('GET', '/api/admin/lines')).status, 503);
+  const on = await boot({ adminPassword: 'secret' }); t.after(on.close);
+  const get = (pw) => fetch(on.base + '/api/admin/lines', { headers: { 'x-admin-password': pw } });
+  assert.equal((await get('nope')).status, 401);
+  assert.equal((await get('secret')).status, 200);
+});
+
+test('saved lines drive the board and survive a restart; they freeze after the first lock', async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pickem-'));
+  const dataFile = path.join(dir, 'state.json');
+  const s = await boot({ adminPassword: 'pw', dataFile }); t.after(s.close);
+  const put = (text, source = 'Yahoo Sports') => s.call('PUT', '/api/admin/lines', { text, source }, undefined, { 'x-admin-password': 'pw' });
+
+  const bad = await put('Thunder 61');
+  assert.equal(bad.status, 422);
+  assert.ok(bad.body.errors.length > 1);
+
+  const ok = await put(lineText({ 'Sacramento Kings': 33.5 }));
+  assert.equal(ok.status, 200);
+  const state = (await s.call('GET', '/api/state')).body;
+  assert.equal(state.linesSource, 'Yahoo Sports');
+  assert.equal(state.lines.find((l) => l.team === 'Sacramento Kings').line, 33.5);
+
+  const again = createApp({ dataFile });
+  assert.equal(again.state().lines.find((l) => l.team === 'Sacramento Kings').line, 33.5);
+
+  const tok = await s.join('Ana'); await s.pickAll(tok, 'over'); await s.call('POST', '/api/lock', null, tok);
+  assert.equal((await put(lineText())).status, 409);
 });

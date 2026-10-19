@@ -90,3 +90,7 @@ body{margin:0;background:radial-gradient(ellipse 80% 40% at 50% 0,var(--navy) 0,
   .app-tabs{gap:var(--space-4)}
 }
 @media (prefers-reduced-motion:reduce){*{animation:none !important;transition:none !important}}
+
+/* Admin */
+.admin-text{height:auto;min-height:320px;padding:var(--space-3);font-family:var(--font-score);font-size:15px;letter-spacing:0;line-height:22px;resize:vertical}
+.app-error ul{margin:var(--space-2) 0 0;padding-left:var(--space-4)}

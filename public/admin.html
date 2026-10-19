@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>Pick'em Admin</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="/tokens.css">
+  <link rel="stylesheet" href="/bundle.css">
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body class="c99-screen">
+  <div class="app">
+    <header class="app-head">
+      <h1 class="c99-title" aria-label="Admin"><span class="c99-title__lead" aria-hidden="true">A</span><span aria-hidden="true">dmin</span></h1>
+    </header>
+
+    <section class="c99-panel app-block" aria-labelledby="h">
+      <header class="c99-panel__header"><span id="h">Over / Unders</span><span class="c99-panel__caret" aria-hidden="true"></span></header>
+      <form id="form" class="c99-panel__body" autocomplete="off">
+        <label class="c99-label" for="pw">Admin password</label>
+        <input id="pw" type="password" class="app-input app-input--wide" required>
+        <button id="load" class="c99-pill" type="button">Load current lines</button>
+
+        <label class="c99-label" for="source" style="margin-top:var(--space-6)">Source shown to players</label>
+        <input id="source" class="app-input app-input--wide" maxlength="60" placeholder="Yahoo Sports">
+
+        <label class="c99-label" for="text">One team per line</label>
+        <textarea id="text" class="app-input app-input--wide admin-text" rows="32" spellcheck="false" placeholder="Oklahoma City Thunder, 61.5&#10;Spurs 60.5&#10;..."></textarea>
+        <p class="app-note">Full names or nicknames work (Thunder, 76ers, Trail Blazers). All 30 teams are required and every line ends in .5. Lines starting with # are ignored. Once anyone locks in, the lines freeze.</p>
+
+        <div id="out" role="status" aria-live="polite"></div>
+        <button class="c99-pill" type="submit" style="width:100%;margin-top:var(--space-4)">Save lines</button>
+      </form>
+    </section>
+    <p class="app-legal"><a href="/">Back to the board</a></p>
+  </div>
+  <script type="module" src="/admin.js"></script>
+</body>
+</html>
