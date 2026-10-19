@@ -113,3 +113,34 @@ body{margin:0;background:radial-gradient(ellipse 80% 40% at 50% 0,var(--navy) 0,
 
 .app .admin-player.c99-option{grid-template-columns:1fr auto auto;gap:var(--space-4);margin-bottom:var(--space-3)}
 .admin-player .c99-round{width:40px;height:40px}
+
+/* Friends' picks under each team */
+.sides--compact{margin-top:var(--space-4);padding-top:var(--space-3);border-top:2px solid var(--panel)}
+.sides--compact p{font-size:14px;line-height:19px}
+
+/* Host panel, sound, lock banner */
+.app-host__status{margin:0 0 var(--space-4);font-weight:700}
+.app-soundrow{margin:calc(-1 * var(--space-4)) 0 var(--space-6);text-align:right}
+.app-link{background:none;border:0;padding:var(--space-2) 0;color:var(--cyan-label);font-family:var(--font-display);font-weight:800;font-size:13px;letter-spacing:.06em;text-transform:uppercase;text-decoration:underline;cursor:pointer}
+.app-link:focus-visible{outline:none;box-shadow:0 0 0 2px var(--arena-black),0 0 0 4px var(--gold)}
+.app-lockbanner{position:fixed;left:var(--space-4);right:var(--space-4);top:var(--space-6);z-index:20;max-width:720px;margin:0 auto;box-shadow:0 12px 24px #000000;animation:c99-banner-in 120ms steps(3,end) both}
+@keyframes c99-banner-in{from{transform:translateX(40px);opacity:0}to{transform:none;opacity:1}}
+
+/* Padlock on locked cards */
+.team__lock{position:absolute;right:var(--space-4);bottom:var(--space-4);width:24px;height:24px;fill:none;stroke:var(--ink-muted);stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.team__lock rect{fill:var(--panel)}
+.team.is-locked{border-color:var(--chrome-300)}
+
+/* Lock-in: each card starts dim with an open padlock, then snaps shut in turn */
+.team.is-locking{animation:c99-lockin 480ms steps(1,end) both;animation-delay:calc(var(--i) * 80ms)}
+.team.is-locking .team__lock .shackle{animation:c99-shackle 480ms steps(1,end) both;animation-delay:calc(var(--i) * 80ms)}
+@keyframes c99-lockin{
+  0%{opacity:.3;filter:saturate(.2);transform:translateY(-8px)}
+  30%{opacity:1;filter:none;transform:scale(1.03);box-shadow:0 0 0 2px var(--navy),0 0 0 5px var(--gold),0 12px 24px #000000}
+  65%{transform:scale(.99);box-shadow:0 0 0 2px var(--navy),0 0 0 3px var(--gold),0 12px 24px #000000}
+  100%{opacity:1;filter:none;transform:none;box-shadow:var(--panel-drop)}
+}
+@keyframes c99-shackle{0%{transform:translateY(-5px)}30%{transform:none}}
+
+.app-admin-actions{display:flex;gap:var(--space-4);margin-top:var(--space-4)}
+.app-admin-actions .c99-pill{flex:1;min-width:0}

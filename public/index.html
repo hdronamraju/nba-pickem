@@ -43,10 +43,10 @@
           <div id="scoreboard"></div>
           <div class="app-card__side">
             <div class="c99-option app-bet">
-              <label class="c99-option__label" for="bet">Bet per team ($)</label>
-              <input id="bet" class="app-input" inputmode="decimal" maxlength="9" aria-describedby="bet-note">
+              <span class="c99-option__label">Stake per team</span>
+              <span id="stake" class="c99-option__value">$10</span>
             </div>
-            <p id="bet-note" class="app-note">Only used to estimate dollars on your screen. Nobody else sees it.</p>
+            <p id="stake-note" class="app-note"></p>
             <div id="lockbar"></div>
             <div class="app-mylink">
               <label class="c99-label" for="mylink">Your personal link</label>
@@ -63,9 +63,28 @@
       </section>
 
       <div class="app-tabs" role="group" aria-label="Views">
-        <button class="c99-pill" data-view="board" type="button">Board</button>
+        <button class="c99-pill" data-view="picks" type="button">My picks</button>
+        <button class="c99-pill" data-view="group" type="button">Group</button>
         <button class="c99-pill" data-view="payouts" type="button">Payouts</button>
       </div>
+
+      <section id="host" class="c99-panel app-block" hidden aria-labelledby="host-h">
+        <header class="c99-panel__header"><span id="host-h">Host: Lock It In</span><span class="c99-panel__caret" aria-hidden="true"></span></header>
+        <form id="host-form" class="c99-panel__body" autocomplete="off">
+          <p id="host-status" class="app-host__status"></p>
+          <label class="c99-label" for="hostpw">Admin password</label>
+          <input id="hostpw" type="password" class="app-input app-input--wide">
+          <p id="host-error" class="app-error" role="alert" hidden></p>
+          <button class="c99-startbar app-start" id="locknow" type="submit">
+            <span class="c99-startbar__cta">Lock It In</span>
+            <span class="c99-startbar__wedge" aria-hidden="true"></span>
+            <span class="c99-startbar__brand">All Players</span>
+          </button>
+          <p class="app-note">Locks every player's picks at once. Only works when everyone is ready.</p>
+        </form>
+      </section>
+
+      <p class="app-soundrow"><button id="soundtoggle" class="app-link" type="button" aria-pressed="false">Sound: off</button></p>
 
       <div id="view"></div>
     </main>
@@ -77,17 +96,9 @@
     </footer>
   </div>
 
-  <dialog id="confirm" class="c99-panel app-dialog" aria-labelledby="confirm-h">
-    <header class="c99-panel__header"><span id="confirm-h">Lock In</span><span class="c99-panel__caret" aria-hidden="true"></span></header>
-    <div class="c99-panel__body">
-      <p class="app-dialog__text">Lock in all 30 picks? They are final. Nobody can change them, including you.</p>
-      <div class="app-dialog__actions">
-        <button id="confirm-no" class="c99-round c99-round--cancel" type="button" aria-label="Cancel"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5 5 L15 15 M15 5 L5 15"/></svg></button>
-        <span class="app-dialog__hint">Cancel / Lock in</span>
-        <button id="confirm-yes" class="c99-round c99-round--confirm" type="button" aria-label="Lock in picks"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 10.5 L8.5 15 L16 5.5"/></svg></button>
-      </div>
-    </div>
-  </dialog>
+  <div id="lockbanner" class="app-lockbanner" hidden role="status" aria-live="assertive">
+    <div class="c99-startbar"><span class="c99-startbar__cta" style="animation:none">All Locked</span><span class="c99-startbar__wedge" aria-hidden="true"></span><span id="lockbanner-n" class="c99-startbar__brand">30 Teams</span></div>
+  </div>
 
   <script type="module" src="/app.js"></script>
 </body>

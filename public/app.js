@@ -1,9 +1,11 @@
-import { computeBoard, parseDollars, formatMoney } from '/shared/logic.js';
+import { computeBoard, formatMoney } from '/shared/logic.js';
 import { groupByDivision } from '/shared/teams.js';
 
 const $ = (id) => document.getElementById(id);
 const TOKEN_KEY = 'pickem.token';
-const BET_KEY = 'pickem.bet';
+const SOUND_KEY = 'pickem.sound';
+const HOSTPW_KEY = 'pickem.hostpw';
+const CARD_STAGGER_MS = 80;
 const store = {
   get(k) { try { return localStorage.getItem(k); } catch { return null; } },
   set(k, v) { try { localStorage.setItem(k, v); } catch { /* private mode: still works for this tab */ } },
@@ -13,17 +15,26 @@ const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&
 
 let S = null;
 let token = store.get(TOKEN_KEY);
-let view = 'board';
-let betText = store.get(BET_KEY) ?? '5';
+let view = 'picks';
 let focusKey = null;
+let soundOn = store.get(SOUND_KEY) === '1';
+let audioCtx = null;
+let lockAnimUntil = 0;   // while Date.now() < this, cards play the lock-in animation
+let cardIndex = 0;       // order of cards in the current render, drives the stagger
+const session = {
+  get(k) { try { return sessionStorage.getItem(k); } catch { return null; } },
+  set(k, v) { try { sessionStorage.setItem(k, v); } catch { /* ignore */ } },
+};
 
 async function api(method, url, body) {
   const res = await fetch(url, {
     method, headers: { 'content-type': 'application/json', ...(token ? { 'x-token': token } : {}) },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw Object.assign(new Error(data.error || 'Something went wrong.'), { status: res.status });
+  const data = await res.json().catch(() => null);
+  if (!res.ok) throw Object.assign(new Error(data?.error || 'Something went wrong.'), { status: res.status });
+  // A response cut off mid-body (flaky connection, page reload) must never look like "you are not signed in".
+  if (data === null) throw new Error('The server response was cut off.');
   return data;
 }
 
@@ -39,38 +50,57 @@ async function load() {
     const sent = token;
     const next = await api('GET', '/api/state');
     if (sent !== token) return load(); // joined while this request was in flight: ask again with the new token
+    const wasOpen = S && S.phase === 'open';
     S = next;
     if (token && !S.me) { token = null; store.del(TOKEN_KEY); }
+    if (wasOpen && S.phase === 'locked' && S.me) startLockAnimation();
     render();
   } catch { say('Can\'t reach the server. Retrying.'); }
 }
 
-const cents = () => parseDollars(betText);
 const ledText = (v) => esc(v);
+const stake = () => S.stakeCents;
+const maxAtRisk = () => stake() * S.lines.length;
+
+// Everyone's picks, when this viewer is allowed to see them.
+const allPlayers = () => (S.everyone ?? []).map((p) => ({ id: p.id, name: p.name, picks: p.picks }));
+const boardFor = () => (S.everyone
+  ? computeBoard({ lines: S.lines, players: allPlayers(), wins: S.wins, cents: stake() })
+  : null);
 
 function scoreboard(board) {
   const total = S.lines.length;
   const picked = Object.keys(S.me.picks).length;
   const cell = (val, ghost, caption, small) =>
     `<div class="c99-scoreboard__cell"><span class="c99-led${small ? ' c99-led--sm' : ''}" data-ghost="${ghost}"><span>${ledText(val)}</span></span><span class="c99-scoreboard__caption">${esc(caption)}</span></div>`;
-  if (!S.me.locked) {
+  if (S.phase !== 'locked' || !board) {
     return `<div class="c99-scoreboard" role="group" aria-label="${picked} of ${total} teams picked">${cell(picked, '88', 'Picked')}${cell(total - picked, '88', 'Left')}</div>`;
   }
-  const c = cents();
-  const pool = c === null ? '--' : formatMoney(board.totalPool);
+  const pool = formatMoney(board.totalPool);
   return `<div class="c99-scoreboard" role="group" aria-label="${board.teamsOn} teams on, ${pool} in play">${cell(board.teamsOn, '88', 'Teams on')}${cell(pool, '8888', 'In play')}</div>`;
 }
 
 function lockBar() {
   const total = S.lines.length;
   const picked = Object.keys(S.me.picks).length;
-  if (S.me.locked) return '<p class="app-lock__done">Locked. Picks are final.</p>';
+  if (S.phase === 'locked') return '<p class="app-lock__done">Locked. Picks are final.</p>';
   const left = total - picked;
-  return `<button class="c99-pill app-lock" id="lock" type="button" ${left ? 'disabled' : ''}>Lock in picks</button>
-    <p class="app-note">${left ? `Pick ${left} more ${left === 1 ? 'team' : 'teams'} to lock in.` : 'All picked. Locking is final.'}</p>`;
+  const label = S.me.ready ? 'Ready (tap to undo)' : "I'm ready";
+  const note = left ? `Pick ${left} more ${left === 1 ? 'team' : 'teams'}, then tap I'm ready.`
+    : S.me.ready ? 'You are ready. The host locks everyone in when all players are.' : 'All picked. Tap I\'m ready when you are happy with them.';
+  return `<button class="c99-pill app-lock" id="ready" type="button" aria-pressed="${S.me.ready}" ${left ? 'disabled' : ''}>${label}</button>
+    <p class="app-note">${note}</p>`;
 }
 
-function pickCard(t) {
+function sidesBlock(info, nameOf, compact) {
+  if (!info) return '';
+  return `<div class="sides${compact ? ' sides--compact' : ''}">
+    <div><span class="c99-label">Over (${info.over.length})</span><p>${names(info.over, nameOf)}</p></div>
+    <div><span class="c99-label">Under (${info.under.length})</span><p>${names(info.under, nameOf)}</p></div>
+  </div>`;
+}
+
+function pickCard(t, info, nameOf) {
   const mine = S.me.picks[t.team];
   const btn = (side) =>
     `<button class="c99-pill" type="button" data-team="${esc(t.team)}" data-side="${side}" aria-pressed="${mine === side}">${side}</button>`;
@@ -81,6 +111,7 @@ function pickCard(t) {
         <div class="team__line"><span class="c99-scoreboard__caption">Line</span><span class="c99-led c99-led--sm" data-ghost="88.8"><span>${t.line}</span></span></div>
       </div>
       <div class="team__picks" role="group" aria-label="${esc(t.team)} over or under ${t.line}">${btn('over')}${btn('under')}</div>
+      ${sidesBlock(info, nameOf, true)}
     </div></article>`;
 }
 
@@ -89,43 +120,45 @@ function names(ids, nameOf) {
   return ids.map((id) => `<span class="${id === S.me.id ? 'is-me' : ''}">${esc(nameOf[id])}</span>`).join(', ');
 }
 
+const LOCK_ICON = '<svg class="team__lock" viewBox="0 0 24 24" aria-hidden="true"><path class="shackle" d="M7 11V8a5 5 0 0 1 10 0v3"/><rect x="5" y="11" width="14" height="10" rx="2"/></svg>';
+
 function resultCard(t, nameOf) {
   const mine = S.me.picks[t.team];
-  const c = cents();
+  const locked = S.phase === 'locked';
+  const animating = locked && Date.now() < lockAnimUntil;
+  const style = animating ? ` style="--i:${cardIndex}"` : '';
+  cardIndex += 1;
   const row = (label, value, cls = '') => `<div class="c99-option"><span class="c99-option__label">${label}</span><span class="c99-option__value ${cls}">${esc(value)}</span></div>`;
-  return `<article class="c99-panel team" aria-label="${esc(t.team)}">
+  return `<article class="c99-panel team${locked ? ' is-locked' : ''}${animating ? ' is-locking' : ''}"${style} aria-label="${esc(t.team)}">
     <div class="team__body">
       <div class="team__top">
         <h4 class="team__name">${esc(t.team)}</h4>
         <div class="team__line"><span class="c99-scoreboard__caption">Line</span><span class="c99-led c99-led--sm" data-ghost="88.8"><span>${t.line}</span></span></div>
       </div>
-      ${row('Bet', t.on ? 'On' : 'Off', t.on ? 'is-on' : 'is-off')}
-      ${row('Pool', t.on && c !== null ? formatMoney(t.pool) : '--')}
+      ${row(locked ? 'Bet' : 'Bet (so far)', t.on ? 'On' : 'Off', t.on ? 'is-on' : 'is-off')}
+      ${row('Pool', t.on ? formatMoney(t.pool) : '--')}
       ${row('You', mine ?? '--')}
       ${row('Wins', t.wins ?? '--')}
-      ${t.on ? row('Leads', t.leader ?? '--') : ''}
-      <div class="sides">
-        <div><span class="c99-label">Over (${t.over.length})</span><p>${names(t.over, nameOf)}</p></div>
-        <div><span class="c99-label">Under (${t.under.length})</span><p>${names(t.under, nameOf)}</p></div>
-      </div>
+      ${t.on && locked ? row('Leads', t.leader ?? '--') : ''}
+      ${sidesBlock(t, nameOf, false)}
+      ${locked ? LOCK_ICON : ''}
     </div></article>`;
 }
 
 function payoutsView(board) {
-  const c = cents();
   const meta = S.winsMeta;
   const when = meta.updatedAt ? new Date(meta.updatedAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : null;
   const stale = meta.error || (meta.updatedAt && Date.now() - meta.updatedAt > 36 * 3_600_000);
   const status = !when ? 'Win totals have not loaded yet.'
     : `Wins from ESPN, updated ${when}.${stale ? ' Showing the last good update.' : ''}`;
   const rows = board.players.map((p) => {
-    const v = c === null ? '--' : formatMoney(p.net, { signed: true });
+    const v = formatMoney(p.net, { signed: true });
     return `<div class="c99-option"><span class="c99-option__label ${p.id === S.me.id ? 'is-me' : ''}">${esc(p.name)}</span><span class="c99-option__value ${p.net > 0 ? 'pos' : 'neg'}">${esc(v)}</span></div>`;
   }).join('');
   return `<section class="c99-panel pay" aria-labelledby="pay-h">
     <header class="c99-panel__header"><span id="pay-h">If The Season Ended Today</span><span class="c99-panel__caret" aria-hidden="true"></span></header>
-    <div class="c99-panel__body">${rows || '<p class="app-note">No locked players yet.</p>'}
-      <p class="app-note">${c === null ? 'Enter a bet amount to see dollars. ' : ''}Net = winnings minus what you put in on every team that is on. ${esc(status)}</p>
+    <div class="c99-panel__body">${rows || '<p class="app-note">No players yet.</p>'}
+      <p class="app-note">${esc(formatMoney(stake()))} per team. Net = winnings minus what you put in on every team that is on. ${esc(status)}</p>
     </div></section>`;
 }
 
@@ -139,25 +172,30 @@ function grouped(entries, card) {
 
 function renderView(board) {
   const el = $('view');
+  const locked = S.phase === 'locked';
+  cardIndex = 0;
   if (view === 'payouts') {
-    el.innerHTML = S.me.locked ? payoutsView(board)
-      : '<section class="c99-panel pay"><div class="c99-panel__body"><p>Lock in your picks to see payouts.</p></div></section>';
+    el.innerHTML = locked && board ? payoutsView(board)
+      : '<section class="c99-panel pay"><div class="c99-panel__body"><p>Payouts appear after the host locks it in.</p></div></section>';
     return;
   }
-  if (!S.me.locked) {
-    el.innerHTML = grouped(S.lines, pickCard);
+  const nameOf = Object.fromEntries((S.everyone ?? []).map((p) => [p.id, p.name]));
+  const byTeam = board ? Object.fromEntries(board.teams.map((t) => [t.team, t])) : null;
+  if (view === 'picks') {
+    el.innerHTML = grouped(S.lines, (t) => pickCard(t, byTeam?.[t.team], nameOf));
     return;
   }
-  const nameOf = Object.fromEntries(S.revealed.map((p) => [p.id, p.name]));
-  el.innerHTML = grouped(board.teams, (t) => resultCard(t, nameOf));
+  el.innerHTML = board
+    ? grouped(board.teams, (t) => resultCard(t, nameOf))
+    : '<section class="c99-panel pay"><div class="c99-panel__body"><p>Picks are hidden until the host locks it in.</p></div></section>';
 }
 
 function renderRoster() {
   const rows = S.players.map((p) =>
-    `<div class="c99-option"><span class="c99-option__label ${S.me && p.id === S.me.id ? 'is-me' : ''}">${esc(p.name)}</span><span class="c99-option__value ${p.locked ? 'is-on' : 'is-off'}">${p.locked ? 'Locked' : `${p.picked}/${S.lines.length}`}</span></div>`).join('');
+    `<div class="c99-option"><span class="c99-option__label ${S.me && p.id === S.me.id ? 'is-me' : ''}">${esc(p.name)}</span><span class="c99-option__value ${p.ready ? 'is-on' : 'is-off'}">${p.ready ? 'Ready' : `${p.picked}/${S.lines.length}`}</span></div>`).join('');
   $('roster').innerHTML = `<div class="c99-panel"><header class="c99-panel__header"><span>Roster (${S.players.length}/${S.maxPlayers})</span><span class="c99-panel__caret" aria-hidden="true"></span></header>
     <div class="c99-panel__body">${rows || '<p class="app-note">Nobody yet. Be the first.</p>'}
-    <p class="app-note">Picks stay hidden until you lock in yours.</p></div></div>`;
+    <p class="app-note">${S.phase === 'locked' ? 'Locked. Picks are final.' : S.showPicks ? "Everyone's picks are on the Group tab." : 'Picks stay hidden until the host locks it in.'}</p></div></div>`;
 }
 
 function render() {
@@ -172,13 +210,20 @@ function render() {
   const link = `${location.origin}/?me=${token}`;
   if ($('mylink').value !== link) $('mylink').value = link;
 
-  document.querySelectorAll('[data-view]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.view === view)));
-  const c = cents();
-  const board = S.me.locked
-    ? computeBoard({ lines: S.lines, players: S.revealed, wins: S.wins, cents: c ?? 0 })
-    : null;
+  const locked = S.phase === 'locked';
+  if (locked && view === 'picks') view = 'group';
+  const tabs = document.querySelectorAll('[data-view]');
+  tabs.forEach((b) => {
+    b.setAttribute('aria-pressed', String(b.dataset.view === view));
+    if (b.dataset.view === 'picks') b.hidden = locked;
+  });
+
+  $('stake').textContent = formatMoney(stake());
+  $('stake-note').textContent = `${formatMoney(stake())} on every team that turns out to be on. Most you can lose: ${formatMoney(maxAtRisk())}.`;
+  const board = boardFor();
   $('scoreboard').innerHTML = scoreboard(board);
   $('lockbar').innerHTML = lockBar();
+  renderHost();
   renderView(board);
 
   if (focusKey) {
@@ -203,10 +248,11 @@ $('join-form').addEventListener('submit', async (e) => {
 
 $('view').addEventListener('click', async (e) => {
   const b = e.target.closest('button[data-team]');
-  if (!b || S.me.locked) return;
+  if (!b || S.phase === 'locked') return;
   const { team, side } = b.dataset;
   const next = S.me.picks[team] === side ? null : side;
   if (next) S.me.picks[team] = next; else delete S.me.picks[team];
+  S.me.ready = false; // the server drops you off the ready list when a pick changes
   focusKey = [team, side];
   render();
   try { await api('PUT', '/api/picks', { team, side: next }); }
@@ -220,24 +266,84 @@ document.querySelector('.app-tabs').addEventListener('click', (e) => {
   render();
 });
 
-$('lockbar').addEventListener('click', (e) => {
-  if (e.target.closest('#lock') && !e.target.closest('#lock').disabled) $('confirm').showModal();
-});
-$('confirm-no').addEventListener('click', () => $('confirm').close());
-$('confirm-yes').addEventListener('click', async () => {
-  $('confirm').close();
-  try { await api('POST', '/api/lock'); } catch (ex) { say(ex.message); }
+$('lockbar').addEventListener('click', async (e) => {
+  const b = e.target.closest('#ready');
+  if (!b || b.disabled) return;
+  try { await api('POST', '/api/ready', { ready: !S.me.ready }); } catch (ex) { say(ex.message); }
   load();
 });
 
-const bet = $('bet');
-bet.value = betText;
-bet.addEventListener('input', () => {
-  betText = bet.value;
-  store.set(BET_KEY, betText);
-  bet.setAttribute('aria-invalid', String(cents() === null));
-  if (S?.me) render();
+// ---- host: lock everyone in ----
+function renderHost() {
+  const show = view === 'group' && S.phase === 'open';
+  $('host').hidden = !show;
+  if (!show) return;
+  const ready = S.players.filter((p) => p.ready).length;
+  const waiting = S.players.filter((p) => !p.ready).map((p) => p.name);
+  $('host-status').textContent = `${ready} of ${S.players.length} ready${waiting.length ? `. Waiting on ${waiting.join(', ')}.` : '. Everyone is ready.'}`;
+}
+
+$('hostpw').value = session.get(HOSTPW_KEY) ?? '';
+$('host-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const err = $('host-error');
+  err.hidden = true;
+  const pw = $('hostpw').value;
+  const res = await fetch('/api/admin/lock', { method: 'POST', headers: { 'x-admin-password': pw } });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) { err.textContent = data.error || 'Could not lock.'; err.hidden = false; return; }
+  session.set(HOSTPW_KEY, pw);
+  load(); // the server also pushes the change to everyone's screen
 });
+
+// ---- the lock-in moment ----
+function startLockAnimation() {
+  const n = S.lines.length;
+  view = 'group';
+  lockAnimUntil = Date.now() + n * CARD_STAGGER_MS + 1000;
+  const banner = $('lockbanner');
+  $('lockbanner-n').textContent = `${n} Teams`;
+  setTimeout(() => { banner.hidden = false; thunk(); }, n * CARD_STAGGER_MS + 450);
+  setTimeout(() => { banner.hidden = true; }, n * CARD_STAGGER_MS + 3200);
+  setTimeout(() => document.querySelectorAll('.is-locking').forEach((el) => el.classList.remove('is-locking')), n * CARD_STAGGER_MS + 1100);
+  for (let i = 0; i < n; i += 1) setTimeout(() => blip(i), i * CARD_STAGGER_MS + 120);
+}
+
+// Tiny WebAudio clicks, no audio files. Off unless the player turns it on.
+function ensureAudio() {
+  if (!audioCtx) {
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    if (Ctx) audioCtx = new Ctx();
+  }
+  if (audioCtx?.state === 'suspended') audioCtx.resume();
+  return audioCtx;
+}
+function tone(freq, ms, vol, type = 'square') {
+  if (!soundOn || !audioCtx || audioCtx.state !== 'running') return;
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  osc.type = type; osc.frequency.value = freq;
+  gain.gain.setValueAtTime(vol, audioCtx.currentTime);
+  gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + ms / 1000);
+  osc.connect(gain).connect(audioCtx.destination);
+  osc.start(); osc.stop(audioCtx.currentTime + ms / 1000);
+}
+const blip = (i) => tone(900 + (i % 6) * 60, 40, 0.04);
+const thunk = () => tone(80, 320, 0.12, 'sawtooth');
+
+function paintSound() {
+  const b = $('soundtoggle');
+  b.textContent = `Sound: ${soundOn ? 'on' : 'off'}`;
+  b.setAttribute('aria-pressed', String(soundOn));
+}
+$('soundtoggle').addEventListener('click', () => {
+  soundOn = !soundOn;
+  store.set(SOUND_KEY, soundOn ? '1' : '0');
+  if (soundOn) { ensureAudio(); tone(900, 60, 0.05); }
+  paintSound();
+});
+document.addEventListener('pointerdown', () => { if (soundOn) ensureAudio(); }, { once: true });
+paintSound();
 
 function bookmarkHint() {
   const ua = navigator.userAgent;

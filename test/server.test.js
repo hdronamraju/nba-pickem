@@ -20,104 +20,184 @@ async function boot(opts = {}) {
   };
   const join = async (name) => (await call('POST', '/api/join', { name })).body.token;
   const pickAll = async (token, side) => { for (const t of TEAMS) await call('PUT', '/api/picks', { team: t.team, side }, token); };
-  return { app, base, call, join, pickAll, close: () => app.server.close() };
+  const ready = (token, r = true) => call('POST', '/api/ready', { ready: r }, token);
+  const admin = { 'x-admin-password': 'pw' };
+  const host = (method, url, body) => call(method, url, body, undefined, admin);
+  return { app, base, call, join, pickAll, ready, host, close: () => app.server.close() };
 }
+const boot2 = async (t, opts) => { const s = await boot({ adminPassword: 'pw', ...opts }); t.after(s.close); return s; };
+const lineText = (over = {}) => TEAMS.map((t) => `${t.team}, ${over[t.team] ?? t.line}`).join('\n');
 
 test('30 teams are seeded', () => assert.equal(TEAMS.length, 30));
 
 test('join validates names and rejects duplicates', async (t) => {
-  const s = await boot(); t.after(s.close);
+  const s = await boot2(t);
   assert.equal((await s.call('POST', '/api/join', { name: '  ' })).status, 400);
   assert.equal((await s.call('POST', '/api/join', { name: 'Harsha' })).status, 201);
   assert.equal((await s.call('POST', '/api/join', { name: 'harsha' })).status, 409);
 });
 
-test('picks cannot change after lock, and lock needs all 30', async (t) => {
-  const s = await boot(); t.after(s.close);
-  const tok = await s.join('Ana');
-  assert.equal((await s.call('POST', '/api/lock', null, tok)).status, 400);
-  await s.pickAll(tok, 'over');
-  assert.equal((await s.call('POST', '/api/lock', null, tok)).status, 200);
-  const change = await s.call('PUT', '/api/picks', { team: TEAMS[0].team, side: 'under' }, tok);
-  assert.equal(change.status, 403);
-  assert.equal((await s.call('GET', '/api/state', null, tok)).body.me.picks[TEAMS[0].team], 'over');
-});
-
-test('other players picks stay hidden until you lock; tokens never leak', async (t) => {
-  const s = await boot(); t.after(s.close);
-  const [a, b] = [await s.join('Ana'), await s.join('Bo')];
-  await s.pickAll(a, 'over'); await s.pickAll(b, 'under');
-  await s.call('POST', '/api/lock', null, a);
-
-  const beforeB = (await s.call('GET', '/api/state', null, b)).body;
-  assert.equal(beforeB.revealed, null);
-  assert.equal(JSON.stringify(beforeB).includes(a), false);
-
-  await s.call('POST', '/api/lock', null, b);
-  const afterB = (await s.call('GET', '/api/state', null, b)).body;
-  assert.equal(afterB.revealed.length, 2);
-  assert.equal(JSON.stringify(afterB).includes(a), false);
-  assert.equal((await s.call('GET', '/api/state')).body.revealed, null);
+test('board is capped at 10 players', async (t) => {
+  const s = await boot2(t);
+  for (let i = 0; i < 10; i++) assert.equal((await s.call('POST', '/api/join', { name: `P${i}` })).status, 201);
+  assert.equal((await s.call('POST', '/api/join', { name: 'Extra' })).status, 409);
 });
 
 test('unknown token and bad picks are rejected', async (t) => {
-  const s = await boot(); t.after(s.close);
+  const s = await boot2(t);
   assert.equal((await s.call('PUT', '/api/picks', { team: 'X', side: 'over' }, 'nope')).status, 401);
   const tok = await s.join('Ana');
   assert.equal((await s.call('PUT', '/api/picks', { team: 'Not A Team', side: 'over' }, tok)).status, 400);
   assert.equal((await s.call('PUT', '/api/picks', { team: TEAMS[0].team, side: 'maybe' }, tok)).status, 400);
 });
 
-test('board is capped at 10 players', async (t) => {
-  const s = await boot(); t.after(s.close);
-  for (let i = 0; i < 10; i++) assert.equal((await s.call('POST', '/api/join', { name: `P${i}` })).status, 201);
-  assert.equal((await s.call('POST', '/api/join', { name: 'Extra' })).status, 409);
+test('stake is fixed at $10 and comes from the server', async (t) => {
+  const s = await boot2(t);
+  assert.equal((await s.call('GET', '/api/state')).body.stakeCents, 1000);
+});
+
+test('ready needs all 30 picks, and changing a pick clears it', async (t) => {
+  const s = await boot2(t);
+  const tok = await s.join('Ana');
+  assert.equal((await s.ready(tok)).status, 400);
+  await s.pickAll(tok, 'over');
+  assert.equal((await s.ready(tok)).status, 200);
+  assert.equal((await s.call('GET', '/api/state', null, tok)).body.me.ready, true);
+  await s.call('PUT', '/api/picks', { team: TEAMS[0].team, side: 'under' }, tok);
+  assert.equal((await s.call('GET', '/api/state', null, tok)).body.me.ready, false);
+  assert.equal((await s.ready(tok, 'yes')).status, 400);
+});
+
+test('live picks: joined players see everyone, visitors see nothing, tokens never leak', async (t) => {
+  const s = await boot2(t);
+  const [a, b] = [await s.join('Ana'), await s.join('Bo')];
+  await s.call('PUT', '/api/picks', { team: TEAMS[0].team, side: 'over' }, a);
+
+  const asBo = (await s.call('GET', '/api/state', null, b)).body;
+  assert.equal(asBo.showPicks, true);
+  assert.deepEqual(asBo.everyone.find((p) => p.name === 'Ana').picks, { [TEAMS[0].team]: 'over' });
+  assert.equal(JSON.stringify(asBo).includes(a), false);
+  assert.equal((await s.call('GET', '/api/state')).body.everyone, null);
+});
+
+test('with live picks off, picks stay hidden until the host locks', async (t) => {
+  const s = await boot2(t);
+  const [a, b] = [await s.join('Ana'), await s.join('Bo')];
+  assert.equal((await s.host('PUT', '/api/admin/settings', { showPicks: false })).status, 200);
+  await s.pickAll(a, 'over'); await s.pickAll(b, 'under');
+  assert.equal((await s.call('GET', '/api/state', null, b)).body.everyone, null);
+  await s.ready(a); await s.ready(b);
+  assert.equal((await s.host('POST', '/api/admin/lock')).status, 200);
+  const after = (await s.call('GET', '/api/state', null, b)).body;
+  assert.equal(after.phase, 'locked');
+  assert.equal(after.everyone.length, 2);
+  assert.equal((await s.call('GET', '/api/state')).body.everyone, null);
+});
+
+test('only the host can lock, and only when 2+ players are all ready', async (t) => {
+  const s = await boot2(t);
+  const a = await s.join('Ana');
+  assert.equal((await s.call('POST', '/api/admin/lock')).status, 401);
+  assert.equal((await s.host('POST', '/api/admin/lock')).status, 409); // one player
+  const b = await s.join('Bo');
+  await s.pickAll(a, 'over'); await s.ready(a);
+  const refused = await s.host('POST', '/api/admin/lock');
+  assert.equal(refused.status, 409);
+  assert.match(refused.body.error, /Waiting on Bo/);
+  await s.pickAll(b, 'under'); await s.ready(b);
+  assert.equal((await s.host('POST', '/api/admin/lock')).status, 200);
+  assert.equal((await s.host('POST', '/api/admin/lock')).status, 409); // already locked
+});
+
+test('after the lock, picks and ready are frozen; unlock reopens them', async (t) => {
+  const s = await boot2(t);
+  const [a, b] = [await s.join('Ana'), await s.join('Bo')];
+  await s.pickAll(a, 'over'); await s.pickAll(b, 'under'); await s.ready(a); await s.ready(b);
+  await s.host('POST', '/api/admin/lock');
+
+  assert.equal((await s.call('PUT', '/api/picks', { team: TEAMS[0].team, side: 'under' }, a)).status, 403);
+  assert.equal((await s.ready(a, false)).status, 403);
+  assert.equal((await s.call('GET', '/api/state', null, a)).body.me.picks[TEAMS[0].team], 'over');
+
+  assert.equal((await s.host('POST', '/api/admin/unlock')).status, 200);
+  assert.equal((await s.call('PUT', '/api/picks', { team: TEAMS[0].team, side: 'under' }, a)).status, 200);
+});
+
+test('admin is disabled without a password and rejects a wrong one', async (t) => {
+  const off = await boot({ adminPassword: undefined }); t.after(off.close);
+  assert.equal((await off.call('GET', '/api/admin/lines')).status, 503);
+  const on = await boot2(t);
+  const get = (pw) => fetch(on.base + '/api/admin/lines', { headers: { 'x-admin-password': pw } });
+  assert.equal((await get('nope')).status, 401);
+  assert.equal((await get('pw')).status, 200);
+});
+
+test('saved lines drive the board and survive a restart; they freeze at the lock and thaw on unlock', async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pickem-'));
+  const dataFile = path.join(dir, 'state.json');
+  const s = await boot2(t, { dataFile });
+  const put = (text, source = 'Yahoo Sports') => s.host('PUT', '/api/admin/lines', { text, source });
+
+  const bad = await put('Thunder 61');
+  assert.equal(bad.status, 422);
+  assert.ok(bad.body.errors.length > 1);
+
+  assert.equal((await put(lineText({ 'Sacramento Kings': 33.5 }))).status, 200);
+  const state = (await s.call('GET', '/api/state')).body;
+  assert.equal(state.linesSource, 'Yahoo Sports');
+  assert.equal(state.lines.find((l) => l.team === 'Sacramento Kings').line, 33.5);
+  assert.equal(createApp({ dataFile }).state().lines.find((l) => l.team === 'Sacramento Kings').line, 33.5);
+
+  const [a, b] = [await s.join('Ana'), await s.join('Bo')];
+  await s.pickAll(a, 'over'); await s.pickAll(b, 'under'); await s.ready(a); await s.ready(b);
+  await s.host('POST', '/api/admin/lock');
+  assert.equal((await put(lineText())).status, 409);
+  await s.host('POST', '/api/admin/unlock');
+  assert.equal((await put(lineText())).status, 200);
+});
+
+test('admin can list and delete players; the name is freed and their token stops working', async (t) => {
+  const s = await boot2(t);
+  const ana = await s.join('Ana'); await s.join('Bo');
+  await s.pickAll(ana, 'over'); await s.ready(ana);
+
+  assert.equal((await s.call('GET', '/api/admin/players')).status, 401);
+  const list = (await s.host('GET', '/api/admin/players')).body;
+  assert.deepEqual(list.players.map((p) => [p.name, p.ready, p.picked]), [['Ana', true, 30], ['Bo', false, 0]]);
+  assert.equal(JSON.stringify(list).includes(ana), false);
+
+  const id = list.players[0].id;
+  assert.equal((await s.call('DELETE', `/api/admin/players/${id}`)).status, 401);
+  assert.equal((await s.host('DELETE', '/api/admin/players/abc123')).status, 404);
+  assert.equal((await s.host('DELETE', `/api/admin/players/${id}`)).status, 200);
+
+  assert.equal((await s.call('GET', '/api/state', null, ana)).body.me, null);
+  assert.equal((await s.call('POST', '/api/join', { name: 'ana' })).status, 201);
+});
+
+test('old per-player locks migrate to ready and the game stays open', async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pickem-'));
+  const dataFile = path.join(dir, 'state.json');
+  fs.writeFileSync(dataFile, JSON.stringify({ players: [
+    { id: 'aa', token: 't1', name: 'Old', picks: {}, lockedAt: 123, joinedAt: 1 },
+    { id: 'bb', token: 't2', name: 'New', picks: {}, lockedAt: null, joinedAt: 2 },
+  ] }));
+  const app = createApp({ dataFile, adminPassword: 'pw' });
+  const st = app.state();
+  assert.deepEqual(st.players.map((p) => [p.name, p.ready, 'lockedAt' in p]), [['Old', true, false], ['New', false, false]]);
+  assert.equal(st.phase, 'open');
+  assert.equal(st.settings.showPicks, true);
 });
 
 test('wins refresh keeps last good data when the fetch fails', async (t) => {
   let fail = false; let clock = 0;
-  const s = await boot({ now: () => clock, fetchWins: async () => { if (fail) throw new Error('boom'); return { 'Miami Heat': 3 }; } });
-  t.after(s.close);
+  const s = await boot2(t, { now: () => clock, fetchWins: async () => { if (fail) throw new Error('boom'); return { 'Miami Heat': 3 }; } });
   await s.app.refreshWins();
   assert.equal(s.app.state().wins['Miami Heat'], 3);
   fail = true; clock += 23 * 3_600_000;
   await s.app.refreshWins();
   assert.equal(s.app.state().wins['Miami Heat'], 3);
   assert.equal(s.app.state().winsMeta.error, 'boom');
-});
-
-const lineText = (over = {}) => TEAMS.map((t) => `${t.team}, ${over[t.team] ?? t.line}`).join('\n');
-
-test('admin is disabled without a password and rejects a wrong one', async (t) => {
-  const off = await boot({ adminPassword: undefined }); t.after(off.close);
-  assert.equal((await off.call('GET', '/api/admin/lines')).status, 503);
-  const on = await boot({ adminPassword: 'secret' }); t.after(on.close);
-  const get = (pw) => fetch(on.base + '/api/admin/lines', { headers: { 'x-admin-password': pw } });
-  assert.equal((await get('nope')).status, 401);
-  assert.equal((await get('secret')).status, 200);
-});
-
-test('saved lines drive the board and survive a restart; they freeze after the first lock', async (t) => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pickem-'));
-  const dataFile = path.join(dir, 'state.json');
-  const s = await boot({ adminPassword: 'pw', dataFile }); t.after(s.close);
-  const put = (text, source = 'Yahoo Sports') => s.call('PUT', '/api/admin/lines', { text, source }, undefined, { 'x-admin-password': 'pw' });
-
-  const bad = await put('Thunder 61');
-  assert.equal(bad.status, 422);
-  assert.ok(bad.body.errors.length > 1);
-
-  const ok = await put(lineText({ 'Sacramento Kings': 33.5 }));
-  assert.equal(ok.status, 200);
-  const state = (await s.call('GET', '/api/state')).body;
-  assert.equal(state.linesSource, 'Yahoo Sports');
-  assert.equal(state.lines.find((l) => l.team === 'Sacramento Kings').line, 33.5);
-
-  const again = createApp({ dataFile });
-  assert.equal(again.state().lines.find((l) => l.team === 'Sacramento Kings').line, 33.5);
-
-  const tok = await s.join('Ana'); await s.pickAll(tok, 'over'); await s.call('POST', '/api/lock', null, tok);
-  assert.equal((await put(lineText())).status, 409);
 });
 
 test('every team sits in exactly one division, 5 per division, grouped A-Z', async () => {
@@ -130,26 +210,4 @@ test('every team sits in exactly one division, 5 per division, grouped A-Z', asy
   assert.deepEqual(g.map((c) => c.conference), ['Eastern Conference', 'Western Conference']);
   const pacific = g[1].divisions.find((d) => d.name === 'Pacific').items.map((t) => t.team);
   assert.deepEqual(pacific, ['Golden State Warriors', 'LA Clippers', 'Los Angeles Lakers', 'Phoenix Suns', 'Sacramento Kings']);
-});
-
-test('admin can list and delete players; the name is freed and their token stops working', async (t) => {
-  const s = await boot({ adminPassword: 'pw' }); t.after(s.close);
-  const admin = { 'x-admin-password': 'pw' };
-  const ana = await s.join('Ana'); await s.join('Bo');
-  await s.pickAll(ana, 'over'); await s.call('POST', '/api/lock', null, ana);
-
-  assert.equal((await s.call('GET', '/api/admin/players')).status, 401);
-  const list = (await s.call('GET', '/api/admin/players', null, undefined, admin)).body;
-  assert.deepEqual(list.players.map((p) => [p.name, p.locked, p.picked]), [['Ana', true, 30], ['Bo', false, 0]]);
-  assert.equal(JSON.stringify(list).includes(ana), false); // never exposes tokens
-
-  const id = list.players[0].id;
-  assert.equal((await s.call('DELETE', `/api/admin/players/${id}`)).status, 401);
-  assert.equal((await s.call('DELETE', '/api/admin/players/abc123', null, undefined, admin)).status, 404);
-  assert.equal((await s.call('DELETE', `/api/admin/players/${id}`, null, undefined, admin)).status, 200);
-
-  assert.equal((await s.call('GET', '/api/state', null, ana)).body.me, null);
-  assert.equal((await s.call('POST', '/api/join', { name: 'ana' })).status, 201);
-  const put = await s.call('PUT', '/api/admin/lines', { text: lineText(), source: 'x' }, undefined, admin);
-  assert.equal(put.status, 200); // nobody is locked any more, so the lines unfreeze
 });

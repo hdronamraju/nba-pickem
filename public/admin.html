@@ -16,6 +16,20 @@
       <h1 class="c99-title" aria-label="Admin"><span class="c99-title__lead" aria-hidden="true">A</span><span aria-hidden="true">dmin</span></h1>
     </header>
 
+    <section class="c99-panel app-block" aria-labelledby="gh">
+      <header class="c99-panel__header"><span id="gh">Game</span><span class="c99-panel__caret" aria-hidden="true"></span></header>
+      <div class="c99-panel__body">
+        <p id="game-status" class="app-host__status">Enter the password in the Over / Unders panel and click Load current lines.</p>
+        <button id="live" class="c99-pill" type="button" aria-pressed="true" style="width:100%">Show picks live: on</button>
+        <p class="app-note">On: everyone sees each other's picks as they make them. Off: picks stay hidden until you lock it in.</p>
+        <div class="app-admin-actions">
+          <button id="lockall" class="c99-pill" type="button">Lock it in</button>
+          <button id="unlockall" class="c99-pill" type="button">Unlock (undo)</button>
+        </div>
+        <div id="game-out" role="status" aria-live="polite"></div>
+      </div>
+    </section>
+
     <section class="c99-panel app-block" aria-labelledby="h">
       <header class="c99-panel__header"><span id="h">Over / Unders</span><span class="c99-panel__caret" aria-hidden="true"></span></header>
       <form id="form" class="c99-panel__body" autocomplete="off">

@@ -10,6 +10,7 @@ import { parseLines, linesToText } from './shared/lines.js';
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const MAX_PLAYERS = 10;
 const NAME_MAX = 24;
+const STAKE_CENTS = Number(process.env.STAKE_CENTS) || 1000; // $10 per team, same for everyone
 const HOUR = 3_600_000;
 const TYPES = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8',
@@ -19,11 +20,21 @@ const TYPES = {
 export function createApp({
   dataFile = path.join(process.env.DATA_DIR || path.join(ROOT, 'data'), 'state.json'),
   adminPassword = process.env.ADMIN_PASSWORD,
+  stakeCents = STAKE_CENTS,
   fetchWins = () => fetchEspnWins(TEAMS.map((t) => t.team)),
   now = () => Date.now(),
 } = {}) {
-  let state = { players: [], lines: TEAMS, linesSource: LINES_SOURCE, wins: {}, winsMeta: { updatedAt: null, lastAttempt: null, error: null } };
+  let state = {
+    players: [], lines: TEAMS, linesSource: LINES_SOURCE, phase: 'open', lockedAt: null,
+    settings: { showPicks: true }, wins: {}, winsMeta: { updatedAt: null, lastAttempt: null, error: null },
+  };
   try { state = { ...state, ...JSON.parse(fs.readFileSync(dataFile, 'utf8')) }; } catch { /* first run */ }
+  state.settings = { showPicks: true, ...state.settings };
+  // Older saves had a per-player lock; treat those players as ready for the group lock.
+  for (const p of state.players) {
+    if (p.ready === undefined) p.ready = !!p.lockedAt;
+    delete p.lockedAt;
+  }
 
   const clients = new Set();
   const teamNames = new Set(TEAMS.map((t) => t.team));
@@ -40,9 +51,10 @@ export function createApp({
 
   const byToken = (token) => (token ? state.players.find((p) => p.token === token) : undefined);
 
-  // Picks of other players are only revealed to someone who has locked their own.
+  // Everyone's picks are visible to joined players while picking if "show picks live" is on,
+  // and to every joined player once the host locks. Visitors who haven't joined never see them.
   function publicState(viewer) {
-    const locked = state.players.filter((p) => p.lockedAt);
+    const canSee = viewer && (state.phase === 'locked' || state.settings.showPicks);
     return {
       lines: state.lines,
       linesSource: state.linesSource,
@@ -50,11 +62,15 @@ export function createApp({
       wins: state.wins,
       winsMeta: state.winsMeta,
       maxPlayers: MAX_PLAYERS,
+      stakeCents,
+      phase: state.phase,
+      lockedAt: state.lockedAt,
+      showPicks: state.settings.showPicks,
       players: state.players.map((p) => ({
-        id: p.id, name: p.name, locked: !!p.lockedAt, picked: Object.keys(p.picks).length,
+        id: p.id, name: p.name, ready: p.ready, picked: Object.keys(p.picks).length,
       })),
-      me: viewer ? { id: viewer.id, name: viewer.name, locked: !!viewer.lockedAt, picks: viewer.picks } : null,
-      revealed: viewer?.lockedAt ? locked.map((p) => ({ id: p.id, name: p.name, picks: p.picks })) : null,
+      me: viewer ? { id: viewer.id, name: viewer.name, ready: viewer.ready, picks: viewer.picks } : null,
+      everyone: canSee ? state.players.map((p) => ({ id: p.id, name: p.name, picks: p.picks })) : null,
     };
   }
 
@@ -107,6 +123,24 @@ export function createApp({
     if (!ok) return new Promise((_, reject) => setTimeout(() => reject(fail(401, 'Wrong admin password.')), 400));
   }
 
+  function gameStatus() {
+    return {
+      phase: state.phase, showPicks: state.settings.showPicks,
+      ready: state.players.filter((p) => p.ready).length, total: state.players.length,
+      notReady: state.players.filter((p) => !p.ready).map((p) => p.name),
+    };
+  }
+
+  function lockGame() {
+    if (state.phase === 'locked') throw fail(409, 'Already locked.');
+    if (state.players.length < 2) throw fail(409, 'Need at least 2 players to lock in.');
+    const notReady = state.players.filter((p) => !p.ready).map((p) => p.name);
+    if (notReady.length) throw fail(409, `Waiting on ${notReady.join(', ')}.`);
+    state.phase = 'locked';
+    state.lockedAt = now();
+    commit();
+  }
+
   async function adminApi(req, res, url) {
     await checkAdmin(req);
     if (url.pathname === '/api/admin/lines') return adminLines(req, res);
@@ -114,10 +148,30 @@ export function createApp({
     if (url.pathname === '/api/admin/players' && req.method === 'GET') {
       return send(res, 200, {
         players: state.players.map((p) => ({
-          id: p.id, name: p.name, locked: !!p.lockedAt, picked: Object.keys(p.picks).length, joinedAt: p.joinedAt,
+          id: p.id, name: p.name, ready: p.ready, picked: Object.keys(p.picks).length, joinedAt: p.joinedAt,
         })),
         total: state.lines.length,
       });
+    }
+    if (url.pathname === '/api/admin/status' && req.method === 'GET') {
+      return send(res, 200, gameStatus());
+    }
+    if (url.pathname === '/api/admin/settings' && req.method === 'PUT') {
+      const body = await readJson(req);
+      if (typeof body.showPicks !== 'boolean') throw fail(400, 'showPicks must be true or false.');
+      state.settings.showPicks = body.showPicks;
+      commit();
+      return send(res, 200, gameStatus());
+    }
+    if (url.pathname === '/api/admin/lock' && req.method === 'POST') {
+      lockGame();
+      return send(res, 200, gameStatus());
+    }
+    if (url.pathname === '/api/admin/unlock' && req.method === 'POST') {
+      state.phase = 'open';
+      state.lockedAt = null;
+      commit();
+      return send(res, 200, gameStatus());
     }
     const del = url.pathname.match(/^\/api\/admin\/players\/([0-9a-f]+)$/);
     if (del && req.method === 'DELETE') {
@@ -132,11 +186,11 @@ export function createApp({
 
   async function adminLines(req, res) {
     if (req.method === 'GET') {
-      return send(res, 200, { text: linesToText(state.lines), source: state.linesSource, frozen: state.players.some((p) => p.lockedAt) });
+      return send(res, 200, { text: linesToText(state.lines), source: state.linesSource, frozen: state.phase === 'locked' });
     }
     if (req.method === 'PUT') {
       const body = await readJson(req);
-      if (state.players.some((p) => p.lockedAt)) throw fail(409, 'Someone has already locked in, so the lines are frozen.');
+      if (state.phase === 'locked') throw fail(409, 'The game is locked, so the lines are frozen. Unlock it first.');
       const { lines, errors } = parseLines(body.text);
       if (errors.length) return send(res, 422, { error: 'Fix the lines below.', errors });
       state.lines = lines;
@@ -163,7 +217,7 @@ export function createApp({
       if (state.players.length >= MAX_PLAYERS) throw fail(409, `The board is full (${MAX_PLAYERS} players).`);
       const player = {
         id: crypto.randomBytes(6).toString('hex'), token: crypto.randomBytes(18).toString('hex'),
-        name, picks: {}, lockedAt: null, joinedAt: now(),
+        name, picks: {}, ready: false, joinedAt: now(),
       };
       state.players.push(player);
       commit();
@@ -175,19 +229,22 @@ export function createApp({
 
     if (req.method === 'PUT' && url.pathname === '/api/picks') {
       const { team, side } = await readJson(req);
-      if (me.lockedAt) throw fail(403, 'Your picks are locked.');
+      if (state.phase === 'locked') throw fail(403, 'Picks are locked.');
       if (!teamNames.has(team)) throw fail(400, 'Unknown team.');
       if (side === null) delete me.picks[team];
       else if (side === 'over' || side === 'under') me.picks[team] = side;
       else throw fail(400, 'Pick over or under.');
+      me.ready = false; // changing a pick takes you off the ready list
       commit();
       return send(res, 200, publicState(me));
     }
 
-    if (req.method === 'POST' && url.pathname === '/api/lock') {
-      if (me.lockedAt) throw fail(403, 'Already locked.');
-      if (Object.keys(me.picks).length !== state.lines.length) throw fail(400, `Pick all ${state.lines.length} teams first.`);
-      me.lockedAt = now();
+    if (req.method === 'POST' && url.pathname === '/api/ready') {
+      const { ready } = await readJson(req);
+      if (typeof ready !== 'boolean') throw fail(400, 'ready must be true or false.');
+      if (state.phase === 'locked') throw fail(403, 'Picks are locked.');
+      if (ready && Object.keys(me.picks).length !== state.lines.length) throw fail(400, `Pick all ${state.lines.length} teams first.`);
+      me.ready = ready;
       commit();
       return send(res, 200, publicState(me));
     }

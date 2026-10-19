@@ -2,10 +2,11 @@
 
 Season win-total over/under for a small group of friends (3–10). One shared board per deployment, built on the Courtside 99 design system.
 
-- Open the link, enter a name, pick OVER or UNDER on all 30 teams, then lock in. Locked picks can't change (the server enforces it).
-- Picks stay hidden until you lock your own. After that you see who took which side, which teams are ON (both sides have a locked pick), and the pool per team.
-- The over/unders are plain text on `/admin` (one team per line, nicknames OK). Whatever is saved there is what the site uses. They freeze once anyone locks in.
-- The bet amount is a text box in your own browser. It only drives the dollar estimates on your screen and is never sent to the server.
+- Open the link, enter a name, and pick OVER or UNDER on all 30 teams (grouped by conference and division). Tap **I'm ready** when you're happy; changing a pick takes you off the ready list.
+- **Group tab:** see every friend's picks per team, whether each bet is ON (both sides have a pick), and the pool. The host switches **Show picks live** on or off in `/admin`; when off, picks stay hidden until the lock.
+- **The host locks everyone at once.** When all players are ready, the host enters the admin password on the Group tab (or `/admin`) and presses **Lock It In**. Every screen plays a lock-in animation, and picks and lines freeze. `/admin` can unlock if it was a mistake. Optional click sound, off by default.
+- The stake is fixed at **$10 per team** (`STAKE_CENTS` to change it). Everyone sees the same dollar figures.
+- The over/unders are plain text on `/admin` (one team per line, nicknames OK). They freeze at the lock. `/admin` can also delete players.
 - Win totals refresh from ESPN's standings about once a day. If a fetch fails, the last good numbers stay and the Payouts view says so.
 
 ## Run
@@ -26,7 +27,7 @@ No dependencies, Node 20+. State lives in `data/state.json` (or `$DATA_DIR/state
 
 ## Rules
 
-- A team is ON only if at least one locked player took OVER and one took UNDER. Pool = bet × players on that team.
+- A team is ON only if at least one player took OVER and one took UNDER. Pool = $10 × players on that team.
 - OVER wins if wins > line (lines end in .5, so no pushes). Winners split the pool equally; leftover cents go to the first winners alphabetically.
 - No accounts: your browser holds a token. Clear your site data and you lose your card.
 
