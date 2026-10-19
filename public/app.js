@@ -168,6 +168,9 @@ function render() {
   $('sources').innerHTML = `Lines: ${esc(S.linesSource)} &middot; Wins: <a href="${esc(S.winsSourceUrl)}" rel="noopener">ESPN standings</a> &middot; Bets are between friends`;
   if (!joined) return;
 
+  const link = `${location.origin}/?me=${token}`;
+  if ($('mylink').value !== link) $('mylink').value = link;
+
   document.querySelectorAll('[data-view]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.view === view)));
   const c = cents();
   const board = S.me.locked
@@ -235,7 +238,30 @@ bet.addEventListener('input', () => {
   if (S?.me) render();
 });
 
+$('mylink').addEventListener('focus', (e) => e.target.select());
+$('copylink').addEventListener('click', async () => {
+  const input = $('mylink');
+  try { await navigator.clipboard.writeText(input.value); }
+  catch { input.select(); document.execCommand('copy'); }
+  const btn = $('copylink');
+  btn.textContent = 'Copied';
+  setTimeout(() => { btn.textContent = 'Copy'; }, 1500);
+});
+
 // ---- boot ----
+// A personal link (/?me=<token>) restores your card on any device.
+async function adoptLinkToken() {
+  const t = new URLSearchParams(location.search).get('me');
+  if (!t) return;
+  history.replaceState(null, '', location.pathname); // keep the secret out of the address bar
+  try {
+    const res = await fetch('/api/state', { headers: { 'x-token': t } });
+    const data = await res.json();
+    if (data.me) { token = t; store.set(TOKEN_KEY, t); }
+    else say('That personal link is not valid. Check that you copied all of it.');
+  } catch { /* the normal load below will report connection trouble */ }
+}
+await adoptLinkToken();
 load();
 const es = new EventSource('/events');
 es.addEventListener('update', load);
