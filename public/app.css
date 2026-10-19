@@ -1,0 +1,92 @@
+/* App layout on top of Courtside 99. Colours, type and spacing all come from tokens.css. */
+html{background:var(--arena-black)}
+body{margin:0;background:radial-gradient(ellipse 80% 40% at 50% 0,var(--navy) 0,var(--arena-black) 70%) no-repeat,var(--arena-black);min-height:100vh;font-size:16px;line-height:24px}
+.app{max-width:1040px;margin:0 auto;padding:var(--space-6) var(--space-4) calc(var(--space-12) + var(--space-8))}
+.app-head{margin-bottom:var(--space-8)}
+.app-tag{margin:var(--space-4) 0 0;color:var(--ink-muted);font-family:var(--font-body);font-weight:500}
+.app-block{margin-bottom:var(--space-8)}
+.app-note{margin:var(--space-2) 0 0;color:var(--ink-muted);font-size:13px;line-height:18px;font-weight:500}
+.app-error{margin:var(--space-2) 0;color:var(--ink);background:var(--signal-red-deep);padding:var(--space-2) var(--space-3);font-weight:700;border-left:4px solid var(--signal-red)}
+.app-msg{margin:0 0 var(--space-4);padding:var(--space-2) var(--space-3);background:var(--signal-red-deep);border:2px solid var(--signal-red);font-weight:700}
+
+/* Inputs: same recessed well as an OptionRow value */
+.app-input{box-sizing:border-box;height:30px;width:96px;padding:0 var(--space-2);border:var(--border-box) solid var(--chrome-300);border-radius:0;background:var(--panel);box-shadow:var(--bevel-in);color:var(--ink);font-family:var(--font-display);font-weight:700;font-size:16px;letter-spacing:.06em;text-align:center}
+.app-input--wide{display:block;width:100%;height:44px;text-align:left;padding:0 var(--space-3);margin-bottom:var(--space-4);font-size:18px}
+.app-input::placeholder{color:var(--ink-muted);opacity:1}
+.app-input:focus-visible,.app-start:focus-visible,.app-start:focus-visible{outline:none;box-shadow:0 0 0 2px var(--arena-black),0 0 0 4px var(--gold)}
+.app-input--wide:focus-visible{box-shadow:var(--bevel-in),0 0 0 2px var(--arena-black),0 0 0 4px var(--gold)}
+.app .c99-option{grid-template-columns:1fr auto}
+.app .c99-option__value{min-width:64px;padding:0 var(--space-2);box-sizing:border-box;height:26px;white-space:nowrap}
+.app .c99-option__label{font-size:15px}
+.app .c99-option__label[for]{cursor:pointer}
+
+/* Press Start button */
+.app-start{display:flex;width:100%;padding:0;border-left:0;border-right:0;color:inherit;font:inherit;cursor:pointer;text-align:left}
+
+/* Card summary */
+.app-card{display:grid;gap:var(--space-8);align-items:start}
+.app-card__side{min-width:0}
+.app-bet{margin-bottom:0}
+#lockbar{margin-top:var(--space-6)}
+.app-lock{width:100%}
+.app-lock__done{margin:0;font-family:var(--font-display);font-style:italic;font-weight:800;text-transform:uppercase;letter-spacing:.04em;color:var(--go-green)}
+#scoreboard .c99-scoreboard{width:100%;box-sizing:border-box;grid-template-columns:repeat(auto-fit,minmax(72px,1fr));justify-items:center}
+
+/* Tabs */
+.app-tabs{display:flex;gap:var(--space-6);margin-bottom:var(--space-8)}
+.app-tabs .c99-pill{min-width:0;flex:1;max-width:220px;height:40px}
+
+/* Team grid */
+.teams{display:grid;gap:var(--space-8) var(--space-6);grid-template-columns:1fr}
+.team{min-width:0}
+.team__body{padding:var(--space-4)}
+.team__top{display:flex;align-items:flex-start;justify-content:space-between;gap:var(--space-3);margin-bottom:var(--space-4)}
+.team__name{margin:0;font-family:var(--font-display);font-style:italic;font-weight:900;font-size:19px;line-height:1.1;text-transform:uppercase;letter-spacing:.02em}
+.team__line{flex:none;text-align:right}
+.team__line .c99-scoreboard__caption{display:block;margin-bottom:2px}
+.team__picks{display:grid;grid-template-columns:1fr 1fr;gap:var(--space-4)}
+.team__picks .c99-pill{width:100%;min-width:0;height:44px;margin-bottom:var(--space-2);font-size:16px}
+.team__picks .c99-pill[aria-pressed="true"]{background:linear-gradient(180deg,var(--gold) 0%,var(--gold) 60%,var(--orange) 100%);box-shadow:var(--bevel-in)}
+.team--open .team__name::after{content:" (open)";color:var(--ink-muted);font-size:12px;font-weight:700}
+.sides{margin-top:var(--space-3);display:grid;gap:var(--space-2)}
+.sides p{margin:0;font-size:15px;line-height:20px;font-weight:500;overflow-wrap:anywhere}
+.sides .c99-label{margin-bottom:0}
+.is-on{color:var(--go-green)}
+.is-off{color:var(--ink-muted)}
+.is-me{font-weight:700;text-decoration:underline;text-decoration-color:var(--gold);text-underline-offset:3px}
+
+.pay{margin-bottom:var(--space-8)}
+.pay .c99-panel__body{padding:var(--space-6) var(--space-4)}
+.pos{color:var(--go-green)}
+.neg{color:var(--ink)}
+
+.app-legal{margin-top:var(--space-8);text-align:center;color:var(--ink-muted);font-family:var(--font-display);font-weight:700;font-size:12px;line-height:18px;letter-spacing:.04em;text-transform:uppercase}
+.app-legal a{color:var(--cyan-label)}
+.app-legal p{margin:0}
+
+/* Dialog */
+.app-dialog{padding:0;width:min(420px,calc(100vw - 32px));background:var(--panel);color:var(--ink)}
+.app-dialog::backdrop{background:var(--arena-scrim)}
+.app-dialog__text{margin:0 0 var(--space-8)}
+.app-dialog__actions{display:flex;align-items:center;justify-content:space-between;gap:var(--space-4)}
+.app-dialog__hint{color:var(--ink-muted);font-family:var(--font-display);font-weight:800;font-size:12px;letter-spacing:.08em;text-transform:uppercase}
+.app-dialog .c99-round{width:44px;height:44px}
+.app-dialog:focus-visible,.c99-round:focus-visible{outline:none;box-shadow:0 0 0 2px var(--arena-black),0 0 0 4px var(--gold)}
+
+#game{margin-bottom:var(--space-8)}
+[hidden]{display:none !important}
+
+@media (min-width:720px){
+  .app{padding-top:var(--space-12)}
+  .app-card{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
+  .teams{grid-template-columns:1fr 1fr}
+}
+@media (max-width:480px){
+  .c99-title{height:44px;font-size:26px;padding-right:var(--space-6)}
+  .c99-title__lead{width:48px;height:56px;font-size:34px;margin:-6px 2px -6px 0}
+  .c99-panel__header{font-size:15px}
+  .c99-startbar__cta{padding:0 var(--space-4);font-size:18px}
+  .c99-startbar__brand{right:var(--space-4);font-size:18px}
+  .app-tabs{gap:var(--space-4)}
+}
+@media (prefers-reduced-motion:reduce){*{animation:none !important;transition:none !important}}

@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Pick'em: Season Win Totals</title>
+  <meta name="description" content="Pick over or under on every team's win total, lock it in, and see who is right at season end.">
+  <meta name="theme-color" content="#07080d">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="/tokens.css">
+  <link rel="stylesheet" href="/bundle.css">
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body class="c99-screen">
+  <div class="app">
+    <header class="app-head">
+      <h1 class="c99-title" aria-label="Pick'em"><span class="c99-title__lead" aria-hidden="true">P</span><span aria-hidden="true">ick'em</span></h1>
+      <p class="app-tag">Season win totals. Over or under on all 30 teams. Lock it in.</p>
+    </header>
+
+    <p id="msg" class="app-msg" role="status" aria-live="polite" hidden></p>
+
+    <!-- Join: static markup so typing is never wiped by a live update -->
+    <section id="join" class="c99-panel app-block" hidden aria-labelledby="join-h">
+      <header class="c99-panel__header"><span id="join-h">Enter The Game</span><span class="c99-panel__caret" aria-hidden="true"></span></header>
+      <form id="join-form" class="c99-panel__body" autocomplete="off">
+        <label class="c99-label" for="name">Your name</label>
+        <input id="name" class="app-input app-input--wide" maxlength="24" required placeholder="Harsha">
+        <p id="join-error" class="app-error" role="alert" hidden></p>
+        <button class="c99-startbar app-start" type="submit">
+          <span class="c99-startbar__cta">Press Start</span>
+          <span class="c99-startbar__wedge" aria-hidden="true"></span>
+          <span class="c99-startbar__brand">Pick'em</span>
+        </button>
+        <p class="app-note">Names are self-declared and picks are tied to this browser. Clear your browser data and you lose your card, so keep this tab's link handy.</p>
+      </form>
+    </section>
+
+    <main id="game" hidden>
+      <section class="c99-panel app-block" aria-labelledby="card-h">
+        <header class="c99-panel__header"><span id="card-h">Your Card</span><span class="c99-panel__caret" aria-hidden="true"></span></header>
+        <div class="c99-panel__body app-card">
+          <div id="scoreboard"></div>
+          <div class="app-card__side">
+            <div class="c99-option app-bet">
+              <label class="c99-option__label" for="bet">Bet per team ($)</label>
+              <input id="bet" class="app-input" inputmode="decimal" maxlength="9" aria-describedby="bet-note">
+            </div>
+            <p id="bet-note" class="app-note">Only used to estimate dollars on your screen. Nobody else sees it.</p>
+            <div id="lockbar"></div>
+          </div>
+        </div>
+      </section>
+
+      <div class="app-tabs" role="group" aria-label="Views">
+        <button class="c99-pill" data-view="board" type="button">Board</button>
+        <button class="c99-pill" data-view="payouts" type="button">Payouts</button>
+      </div>
+
+      <div id="view"></div>
+    </main>
+
+    <section id="roster" class="app-block"></section>
+
+    <footer class="app-legal">
+      <p id="sources"></p>
+    </footer>
+  </div>
+
+  <dialog id="confirm" class="c99-panel app-dialog" aria-labelledby="confirm-h">
+    <header class="c99-panel__header"><span id="confirm-h">Lock In</span><span class="c99-panel__caret" aria-hidden="true"></span></header>
+    <div class="c99-panel__body">
+      <p class="app-dialog__text">Lock in all 30 picks? They are final. Nobody can change them, including you.</p>
+      <div class="app-dialog__actions">
+        <button id="confirm-no" class="c99-round c99-round--cancel" type="button" aria-label="Cancel"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5 5 L15 15 M15 5 L5 15"/></svg></button>
+        <span class="app-dialog__hint">Cancel / Lock in</span>
+        <button id="confirm-yes" class="c99-round c99-round--confirm" type="button" aria-label="Lock in picks"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 10.5 L8.5 15 L16 5.5"/></svg></button>
+      </div>
+    </div>
+  </dialog>
+
+  <script type="module" src="/app.js"></script>
+</body>
+</html>

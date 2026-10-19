@@ -1,0 +1,12 @@
+{
+  "name": "nba-pickem",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Win-total over/under pick'em for a small group of friends",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test \"test/*.test.js\""
+  },
+  "engines": { "node": ">=20" }
+}
