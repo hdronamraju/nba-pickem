@@ -131,3 +131,25 @@ test('every team sits in exactly one division, 5 per division, grouped A-Z', asy
   const pacific = g[1].divisions.find((d) => d.name === 'Pacific').items.map((t) => t.team);
   assert.deepEqual(pacific, ['Golden State Warriors', 'LA Clippers', 'Los Angeles Lakers', 'Phoenix Suns', 'Sacramento Kings']);
 });
+
+test('admin can list and delete players; the name is freed and their token stops working', async (t) => {
+  const s = await boot({ adminPassword: 'pw' }); t.after(s.close);
+  const admin = { 'x-admin-password': 'pw' };
+  const ana = await s.join('Ana'); await s.join('Bo');
+  await s.pickAll(ana, 'over'); await s.call('POST', '/api/lock', null, ana);
+
+  assert.equal((await s.call('GET', '/api/admin/players')).status, 401);
+  const list = (await s.call('GET', '/api/admin/players', null, undefined, admin)).body;
+  assert.deepEqual(list.players.map((p) => [p.name, p.locked, p.picked]), [['Ana', true, 30], ['Bo', false, 0]]);
+  assert.equal(JSON.stringify(list).includes(ana), false); // never exposes tokens
+
+  const id = list.players[0].id;
+  assert.equal((await s.call('DELETE', `/api/admin/players/${id}`)).status, 401);
+  assert.equal((await s.call('DELETE', '/api/admin/players/abc123', null, undefined, admin)).status, 404);
+  assert.equal((await s.call('DELETE', `/api/admin/players/${id}`, null, undefined, admin)).status, 200);
+
+  assert.equal((await s.call('GET', '/api/state', null, ana)).body.me, null);
+  assert.equal((await s.call('POST', '/api/join', { name: 'ana' })).status, 201);
+  const put = await s.call('PUT', '/api/admin/lines', { text: lineText(), source: 'x' }, undefined, admin);
+  assert.equal(put.status, 200); // nobody is locked any more, so the lines unfreeze
+});

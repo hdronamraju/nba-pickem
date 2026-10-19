@@ -109,6 +109,28 @@ export function createApp({
 
   async function adminApi(req, res, url) {
     await checkAdmin(req);
+    if (url.pathname === '/api/admin/lines') return adminLines(req, res);
+
+    if (url.pathname === '/api/admin/players' && req.method === 'GET') {
+      return send(res, 200, {
+        players: state.players.map((p) => ({
+          id: p.id, name: p.name, locked: !!p.lockedAt, picked: Object.keys(p.picks).length, joinedAt: p.joinedAt,
+        })),
+        total: state.lines.length,
+      });
+    }
+    const del = url.pathname.match(/^\/api\/admin\/players\/([0-9a-f]+)$/);
+    if (del && req.method === 'DELETE') {
+      const i = state.players.findIndex((p) => p.id === del[1]);
+      if (i < 0) throw fail(404, 'No such player.');
+      const [gone] = state.players.splice(i, 1);
+      commit();
+      return send(res, 200, { deleted: gone.name });
+    }
+    throw fail(404, 'Not found.');
+  }
+
+  async function adminLines(req, res) {
     if (req.method === 'GET') {
       return send(res, 200, { text: linesToText(state.lines), source: state.linesSource, frozen: state.players.some((p) => p.lockedAt) });
     }
@@ -126,7 +148,7 @@ export function createApp({
   }
 
   async function api(req, res, url) {
-    if (url.pathname === '/api/admin/lines') return adminApi(req, res, url);
+    if (url.pathname.startsWith('/api/admin/')) return adminApi(req, res, url);
     const token = req.headers['x-token'] || url.searchParams.get('token') || undefined;
 
     if (req.method === 'GET' && url.pathname === '/api/state') {
