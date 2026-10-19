@@ -12,7 +12,7 @@ body{margin:0;background:radial-gradient(ellipse 80% 40% at 50% 0,var(--navy) 0,
 /* Inputs: same recessed well as an OptionRow value */
 .app-input{box-sizing:border-box;height:30px;width:96px;padding:0 var(--space-2);border:var(--border-box) solid var(--chrome-300);border-radius:0;background:var(--panel);box-shadow:var(--bevel-in);color:var(--ink);font-family:var(--font-display);font-weight:700;font-size:16px;letter-spacing:.06em;text-align:center}
 .app-input--wide{display:block;width:100%;height:44px;text-align:left;padding:0 var(--space-3);margin-bottom:var(--space-4);font-size:18px}
-.app-input::placeholder{color:var(--ink-muted);opacity:1}
+.app-input::placeholder{color:var(--ink-muted);opacity:.75;font-style:italic;font-weight:500;letter-spacing:.02em;text-transform:none}
 .app-input:focus-visible,.app-start:focus-visible,.app-start:focus-visible{outline:none;box-shadow:0 0 0 2px var(--arena-black),0 0 0 4px var(--gold)}
 .app-input--wide:focus-visible{box-shadow:var(--bevel-in),0 0 0 2px var(--arena-black),0 0 0 4px var(--gold)}
 .app .c99-option{grid-template-columns:1fr auto}
