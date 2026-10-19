@@ -94,3 +94,10 @@ body{margin:0;background:radial-gradient(ellipse 80% 40% at 50% 0,var(--navy) 0,
 /* Admin */
 .admin-text{height:auto;min-height:320px;padding:var(--space-3);font-family:var(--font-score);font-size:15px;letter-spacing:0;line-height:22px;resize:vertical}
 .app-error ul{margin:var(--space-2) 0 0;padding-left:var(--space-4)}
+
+/* Conference / division headings */
+.conf{margin-bottom:var(--space-12)}
+.conf__title{display:flex;align-items:center;height:40px;margin:0 0 var(--space-6);padding:0 var(--space-4);background:linear-gradient(180deg,var(--broadcast-blue-hi) 0%,var(--broadcast-blue) 55%,var(--navy) 100%);box-shadow:inset 0 0 0 1px var(--chrome-100);color:var(--ink);font-family:var(--font-menu);font-weight:400;font-size:18px;letter-spacing:.04em;text-transform:uppercase}
+.div__title{margin:var(--space-6) 0 var(--space-4);padding-bottom:var(--space-1);border-bottom:2px solid var(--broadcast-blue);color:var(--cyan-label);font-family:var(--font-display);font-style:italic;font-weight:800;font-size:15px;letter-spacing:.06em;text-transform:uppercase}
+.div__title:first-of-type{margin-top:0}
+.div__title + .teams{margin-bottom:var(--space-8)}

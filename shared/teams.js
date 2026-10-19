@@ -18,3 +18,29 @@ const RAW = [
 export const TEAMS = RAW
   .map(([team, line]) => ({ team, line }))
   .sort((a, b) => b.line - a.line || a.team.localeCompare(b.team));
+
+// Display order for the board: conference, then division, then teams A-Z within each division.
+export const CONFERENCES = [
+  { name: 'Eastern Conference', divisions: [
+    { name: 'Atlantic', teams: ['Boston Celtics', 'Brooklyn Nets', 'New York Knicks', 'Philadelphia 76ers', 'Toronto Raptors'] },
+    { name: 'Central', teams: ['Chicago Bulls', 'Cleveland Cavaliers', 'Detroit Pistons', 'Indiana Pacers', 'Milwaukee Bucks'] },
+    { name: 'Southeast', teams: ['Atlanta Hawks', 'Charlotte Hornets', 'Miami Heat', 'Orlando Magic', 'Washington Wizards'] },
+  ] },
+  { name: 'Western Conference', divisions: [
+    { name: 'Northwest', teams: ['Denver Nuggets', 'Minnesota Timberwolves', 'Oklahoma City Thunder', 'Portland Trail Blazers', 'Utah Jazz'] },
+    { name: 'Pacific', teams: ['Golden State Warriors', 'LA Clippers', 'Los Angeles Lakers', 'Phoenix Suns', 'Sacramento Kings'] },
+    { name: 'Southwest', teams: ['Dallas Mavericks', 'Houston Rockets', 'Memphis Grizzlies', 'New Orleans Pelicans', 'San Antonio Spurs'] },
+  ] },
+];
+
+/** [{ conference, divisions: [{ name, items }] }] where items are the entries of `entries` (each has .team), A-Z. */
+export function groupByDivision(entries) {
+  const byTeam = new Map(entries.map((e) => [e.team, e]));
+  return CONFERENCES.map((c) => ({
+    conference: c.name,
+    divisions: c.divisions.map((d) => ({
+      name: d.name,
+      items: d.teams.slice().sort((a, b) => a.localeCompare(b)).map((t) => byTeam.get(t)).filter(Boolean),
+    })),
+  }));
+}

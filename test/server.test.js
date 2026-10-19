@@ -119,3 +119,15 @@ test('saved lines drive the board and survive a restart; they freeze after the f
   const tok = await s.join('Ana'); await s.pickAll(tok, 'over'); await s.call('POST', '/api/lock', null, tok);
   assert.equal((await put(lineText())).status, 409);
 });
+
+test('every team sits in exactly one division, 5 per division, grouped A-Z', async () => {
+  const { CONFERENCES, groupByDivision } = await import('../shared/teams.js');
+  const all = CONFERENCES.flatMap((c) => c.divisions.flatMap((d) => d.teams));
+  assert.equal(all.length, 30);
+  assert.deepEqual([...new Set(all)].sort(), TEAMS.map((t) => t.team).sort());
+  assert.ok(CONFERENCES.every((c) => c.divisions.length === 3 && c.divisions.every((d) => d.teams.length === 5)));
+  const g = groupByDivision(TEAMS);
+  assert.deepEqual(g.map((c) => c.conference), ['Eastern Conference', 'Western Conference']);
+  const pacific = g[1].divisions.find((d) => d.name === 'Pacific').items.map((t) => t.team);
+  assert.deepEqual(pacific, ['Golden State Warriors', 'LA Clippers', 'Los Angeles Lakers', 'Phoenix Suns', 'Sacramento Kings']);
+});

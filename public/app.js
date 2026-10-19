@@ -1,4 +1,5 @@
 import { computeBoard, parseDollars, formatMoney } from '/shared/logic.js';
+import { groupByDivision } from '/shared/teams.js';
 
 const $ = (id) => document.getElementById(id);
 const TOKEN_KEY = 'pickem.token';
@@ -76,7 +77,7 @@ function pickCard(t) {
   return `<article class="c99-panel team${mine ? '' : ' team--open'}" aria-label="${esc(t.team)}">
     <div class="team__body">
       <div class="team__top">
-        <h2 class="team__name">${esc(t.team)}</h2>
+        <h4 class="team__name">${esc(t.team)}</h4>
         <div class="team__line"><span class="c99-scoreboard__caption">Line</span><span class="c99-led c99-led--sm" data-ghost="88.8"><span>${t.line}</span></span></div>
       </div>
       <div class="team__picks" role="group" aria-label="${esc(t.team)} over or under ${t.line}">${btn('over')}${btn('under')}</div>
@@ -95,7 +96,7 @@ function resultCard(t, nameOf) {
   return `<article class="c99-panel team" aria-label="${esc(t.team)}">
     <div class="team__body">
       <div class="team__top">
-        <h2 class="team__name">${esc(t.team)}</h2>
+        <h4 class="team__name">${esc(t.team)}</h4>
         <div class="team__line"><span class="c99-scoreboard__caption">Line</span><span class="c99-led c99-led--sm" data-ghost="88.8"><span>${t.line}</span></span></div>
       </div>
       ${row('Bet', t.on ? 'On' : 'Off', t.on ? 'is-on' : 'is-off')}
@@ -128,6 +129,14 @@ function payoutsView(board) {
     </div></section>`;
 }
 
+// Conference > division > teams A-Z.
+function grouped(entries, card) {
+  return groupByDivision(entries).map((c) => `<section class="conf" aria-label="${esc(c.conference)}">
+    <h2 class="conf__title">${esc(c.conference)}</h2>
+    ${c.divisions.map((d) => `<h3 class="div__title">${esc(d.name)}</h3><div class="teams">${d.items.map(card).join('')}</div>`).join('')}
+  </section>`).join('');
+}
+
 function renderView(board) {
   const el = $('view');
   if (view === 'payouts') {
@@ -136,11 +145,11 @@ function renderView(board) {
     return;
   }
   if (!S.me.locked) {
-    el.innerHTML = `<div class="teams">${S.lines.map(pickCard).join('')}</div>`;
+    el.innerHTML = grouped(S.lines, pickCard);
     return;
   }
   const nameOf = Object.fromEntries(S.revealed.map((p) => [p.id, p.name]));
-  el.innerHTML = `<div class="teams">${board.teams.map((t) => resultCard(t, nameOf)).join('')}</div>`;
+  el.innerHTML = grouped(board.teams, (t) => resultCard(t, nameOf));
 }
 
 function renderRoster() {
