@@ -144,3 +144,5 @@ body{margin:0;background:radial-gradient(ellipse 80% 40% at 50% 0,var(--navy) 0,
 
 .app-admin-actions{display:flex;gap:var(--space-4);margin-top:var(--space-4)}
 .app-admin-actions .c99-pill{flex:1;min-width:0}
+
+.admin-pre{margin:var(--space-4) 0 0;padding:var(--space-3);max-height:260px;overflow:auto;background:var(--panel);border:var(--border-box) solid var(--chrome-500);font-family:var(--font-score);font-size:12px;line-height:16px;white-space:pre-wrap;word-break:break-word}

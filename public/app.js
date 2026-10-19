@@ -146,7 +146,8 @@ function payoutsView(board) {
   const meta = S.winsMeta;
   const when = meta.updatedAt ? new Date(meta.updatedAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : null;
   const stale = meta.error || (meta.updatedAt && Date.now() - meta.updatedAt > 36 * 3_600_000);
-  const status = !when ? 'Win totals have not loaded yet.'
+  const status = !S.seasonStarted ? "The season hasn't started yet, so every payout is $0 until the host starts the season."
+    : !when ? 'Win totals have not loaded yet.'
     : `Wins from ESPN, updated ${when}.${stale ? ' Showing the last good update.' : ''}`;
   const rows = board.players.map((p) => {
     const v = formatMoney(p.net, { signed: true });

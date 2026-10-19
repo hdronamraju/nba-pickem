@@ -22,6 +22,10 @@
         <p id="game-status" class="app-host__status">Enter the password in the Over / Unders panel and click Load current lines.</p>
         <button id="live" class="c99-pill" type="button" aria-pressed="true" style="width:100%">Show picks live: on</button>
         <p class="app-note">On: everyone sees each other's picks as they make them. Off: picks stay hidden until you lock it in.</p>
+        <button id="season" class="c99-pill" type="button" aria-pressed="false" style="width:100%;margin-top:var(--space-6)">Season started: off</button>
+        <p class="app-note">Off until the regular season really begins: team wins are ignored, so Leads shows -- and payouts stay $0. Turn it on after opening night.</p>
+        <button id="checkespn" class="c99-pill" type="button" style="width:100%;margin-top:var(--space-4)">Check what ESPN reports</button>
+        <pre id="espn-out" class="admin-pre" hidden></pre>
         <div class="app-admin-actions">
           <button id="lockall" class="c99-pill" type="button">Lock it in</button>
           <button id="unlockall" class="c99-pill" type="button">Unlock (undo)</button>

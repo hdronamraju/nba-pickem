@@ -4,7 +4,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { TEAMS, LINES_SOURCE, WINS_SOURCE_URL } from './shared/teams.js';
-import { fetchWins as fetchEspnWins } from './shared/espn.js';
+import { fetchWins as fetchEspnWins, fetchRaw as fetchEspnRaw } from './shared/espn.js';
 import { parseLines, linesToText } from './shared/lines.js';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
@@ -22,14 +22,15 @@ export function createApp({
   adminPassword = process.env.ADMIN_PASSWORD,
   stakeCents = STAKE_CENTS,
   fetchWins = () => fetchEspnWins(TEAMS.map((t) => t.team)),
+  fetchRaw = () => fetchEspnRaw(),
   now = () => Date.now(),
 } = {}) {
   let state = {
     players: [], lines: TEAMS, linesSource: LINES_SOURCE, phase: 'open', lockedAt: null,
-    settings: { showPicks: true }, wins: {}, winsMeta: { updatedAt: null, lastAttempt: null, error: null },
+    settings: { showPicks: true, seasonStarted: false }, wins: {}, winsMeta: { updatedAt: null, lastAttempt: null, error: null },
   };
   try { state = { ...state, ...JSON.parse(fs.readFileSync(dataFile, 'utf8')) }; } catch { /* first run */ }
-  state.settings = { showPicks: true, ...state.settings };
+  state.settings = { showPicks: true, seasonStarted: false, ...state.settings };
   // Older saves had a per-player lock; treat those players as ready for the group lock.
   for (const p of state.players) {
     if (p.ready === undefined) p.ready = !!p.lockedAt;
@@ -59,8 +60,10 @@ export function createApp({
       lines: state.lines,
       linesSource: state.linesSource,
       winsSourceUrl: WINS_SOURCE_URL,
-      wins: state.wins,
+      // Win totals only count once the host says the regular season has started.
+      wins: state.settings.seasonStarted ? state.wins : {},
       winsMeta: state.winsMeta,
+      seasonStarted: state.settings.seasonStarted,
       maxPlayers: MAX_PLAYERS,
       stakeCents,
       phase: state.phase,
@@ -125,7 +128,7 @@ export function createApp({
 
   function gameStatus() {
     return {
-      phase: state.phase, showPicks: state.settings.showPicks,
+      phase: state.phase, showPicks: state.settings.showPicks, seasonStarted: state.settings.seasonStarted,
       ready: state.players.filter((p) => p.ready).length, total: state.players.length,
       notReady: state.players.filter((p) => !p.ready).map((p) => p.name),
     };
@@ -158,10 +161,15 @@ export function createApp({
     }
     if (url.pathname === '/api/admin/settings' && req.method === 'PUT') {
       const body = await readJson(req);
-      if (typeof body.showPicks !== 'boolean') throw fail(400, 'showPicks must be true or false.');
-      state.settings.showPicks = body.showPicks;
+      const keys = ['showPicks', 'seasonStarted'].filter((k) => k in body);
+      if (!keys.length || keys.some((k) => typeof body[k] !== 'boolean')) throw fail(400, 'Send showPicks and/or seasonStarted as true or false.');
+      for (const k of keys) state.settings[k] = body[k];
       commit();
       return send(res, 200, gameStatus());
+    }
+    if (url.pathname === '/api/admin/espn' && req.method === 'GET') {
+      try { return send(res, 200, await fetchRaw()); }
+      catch (err) { throw fail(502, `Could not read ESPN: ${String(err.message || err).slice(0, 160)}`); }
     }
     if (url.pathname === '/api/admin/lock' && req.method === 'POST') {
       lockGame();

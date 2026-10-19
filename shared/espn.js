@@ -21,3 +21,25 @@ export async function fetchWins(expectedTeams, fetchImpl = fetch) {
   if (missing.length) throw new Error(`ESPN standings missing: ${missing.join(', ')}`);
   return wins;
 }
+
+// For the admin "Check ESPN" button: what did ESPN actually send? (Used to verify we read the right numbers.)
+export async function fetchRaw(team = 'Boston Celtics', fetchImpl = fetch) {
+  const res = await fetchImpl(ESPN_URL, { headers: { accept: 'application/json' } });
+  if (!res.ok) throw new Error(`ESPN responded ${res.status}`);
+  const json = await res.json();
+  const group = (json.children ?? [])[0]?.standings ?? {};
+  let entry = null;
+  for (const g of json.children ?? []) {
+    entry = (g.standings?.entries ?? []).find((e) => e.team?.displayName === team) ?? entry;
+  }
+  return {
+    url: ESPN_URL,
+    topLevelKeys: Object.keys(json),
+    seasonInfo: {
+      seasonDisplayName: group.seasonDisplayName ?? null, season: group.season ?? null,
+      seasonType: group.seasonType ?? null, links: undefined,
+    },
+    team: entry?.team?.displayName ?? null,
+    stats: (entry?.stats ?? []).map((s) => ({ name: s.name, displayValue: s.displayValue ?? null, value: s.value ?? null })),
+  };
+}

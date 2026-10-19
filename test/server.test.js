@@ -211,3 +211,23 @@ test('every team sits in exactly one division, 5 per division, grouped A-Z', asy
   const pacific = g[1].divisions.find((d) => d.name === 'Pacific').items.map((t) => t.team);
   assert.deepEqual(pacific, ['Golden State Warriors', 'LA Clippers', 'Los Angeles Lakers', 'Phoenix Suns', 'Sacramento Kings']);
 });
+
+test('win totals stay hidden until the host starts the season', async (t) => {
+  const s = await boot2(t, { fetchWins: async () => ({ 'Boston Celtics': 4 }) });
+  await s.app.refreshWins({ force: true });
+  const before = (await s.call('GET', '/api/state')).body;
+  assert.equal(before.seasonStarted, false);
+  assert.deepEqual(before.wins, {});
+  assert.equal((await s.host('PUT', '/api/admin/settings', { seasonStarted: true })).body.seasonStarted, true);
+  assert.equal((await s.call('GET', '/api/state')).body.wins['Boston Celtics'], 4);
+  assert.equal((await s.host('PUT', '/api/admin/settings', { seasonStarted: 'yes' })).status, 400);
+  assert.equal((await s.host('PUT', '/api/admin/settings', { showPicks: false })).body.seasonStarted, true); // leaves the other setting alone
+});
+
+test('admin ESPN check needs the password and reports what ESPN sent', async (t) => {
+  const s = await boot2(t, { fetchRaw: async () => ({ team: 'Boston Celtics', stats: [{ name: 'wins', value: 4 }] }) });
+  assert.equal((await s.call('GET', '/api/admin/espn')).status, 401);
+  assert.deepEqual((await s.host('GET', '/api/admin/espn')).body.stats, [{ name: 'wins', value: 4 }]);
+  const bad = await boot2(t, { fetchRaw: async () => { throw new Error('nope'); } });
+  assert.equal((await bad.host('GET', '/api/admin/espn')).status, 502);
+});

@@ -58,10 +58,14 @@ $('form').addEventListener('submit', async (e) => {
 
 // ---- game: live picks switch, lock and unlock ----
 let showPicks = true;
+let seasonStarted = false;
 function paintGame(g) {
   showPicks = g.showPicks;
   $('live').textContent = `Show picks live: ${g.showPicks ? 'on' : 'off'}`;
   $('live').setAttribute('aria-pressed', String(g.showPicks));
+  seasonStarted = g.seasonStarted;
+  $('season').textContent = `Season started: ${g.seasonStarted ? 'on' : 'off'}`;
+  $('season').setAttribute('aria-pressed', String(g.seasonStarted));
   $('game-status').textContent = g.phase === 'locked'
     ? 'LOCKED. Picks and lines are frozen.'
     : `Open. ${g.ready} of ${g.total} ready${g.notReady.length ? `. Waiting on ${g.notReady.join(', ')}.` : '.'}`;
@@ -88,4 +92,16 @@ $('unlockall').addEventListener('click', async () => {
   const { status, data } = await call('POST', undefined, '/api/admin/unlock');
   if (status === 200) { paintGame(data); gameOut(true, 'Unlocked. Players can edit again.'); loadPlayers(); }
   else gameOut(false, data.error || 'Could not unlock.');
+});
+
+$('season').addEventListener('click', async () => {
+  const { status, data } = await call('PUT', { seasonStarted: !seasonStarted }, '/api/admin/settings');
+  if (status === 200) { paintGame(data); gameOut(true, data.seasonStarted ? 'Season started: team wins now count.' : 'Season not started: team wins are ignored.'); }
+  else gameOut(false, data.error || 'Could not change that.');
+});
+$('checkespn').addEventListener('click', async () => {
+  const out = $('espn-out');
+  out.hidden = false; out.textContent = 'Asking ESPN...';
+  const { status, data } = await call('GET', undefined, '/api/admin/espn');
+  out.textContent = status === 200 ? JSON.stringify(data, null, 2) : (data.error || 'Could not reach ESPN.');
 });
