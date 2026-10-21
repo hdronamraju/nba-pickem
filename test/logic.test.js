@@ -79,3 +79,36 @@ test('parseDollars / formatMoney', () => {
   assert.equal(formatMoney(-500, { signed: true }), '-$5');
   assert.equal(formatMoney(0, { signed: true }), '$0');
 });
+
+import { playerRanges } from '../shared/logic.js';
+
+test('playerRanges: spec example 1 (2 over, 2 under at $5)', () => {
+  const players = [
+    mk('Andrew', { Wiz: 'over' }), mk('Ben', { Wiz: 'over' }),
+    mk('Chris', { Wiz: 'under' }), mk('Doug', { Wiz: 'under' }),
+  ];
+  const r = playerRanges({ lines: [{ team: 'Wiz', line: 34.5 }], players, cents: 500 });
+  assert.deepEqual(r.map((p) => [p.name, p.best, p.worst, p.teamsOn]), [
+    ['Andrew', 500, -500, 1], ['Ben', 500, -500, 1], ['Chris', 500, -500, 1], ['Doug', 500, -500, 1],
+  ]);
+});
+
+test('playerRanges: a lone wolf stands to win far more than the crowd (spec example 2)', () => {
+  const names = ['Andrew', 'Ben', 'Chris', 'Doug', 'Emily', 'Frank', 'Greg', 'Harsha', 'Isabel'];
+  const players = [...names.map((n) => mk(n, { Bucks: 'under' })), mk('Jeh', { Bucks: 'over' })];
+  const r = playerRanges({ lines: [{ team: 'Bucks', line: 25.5 }], players, cents: 500 });
+  const jeh = r.find((p) => p.name === 'Jeh');
+  const crowd = r.find((p) => p.name === 'Ben');
+  assert.equal(jeh.best, 4500); // $50 pool minus his $5
+  assert.equal(crowd.best, Math.floor(5000 / 9) - 500); // $55.55 share minus $5
+  assert.equal(jeh.worst, -500);
+  assert.equal(r[0].name, 'Jeh');
+});
+
+test('playerRanges: OFF teams and unpicked teams risk nothing; bests and worsts add up across teams', () => {
+  const lines = [{ team: 'A', line: 1.5 }, { team: 'B', line: 2.5 }, { team: 'C', line: 3.5 }];
+  const players = [mk('X', { A: 'over', B: 'over', C: 'over' }), mk('Y', { A: 'under', B: 'over' })];
+  const [x] = playerRanges({ lines, players, cents: 1000 }).filter((p) => p.name === 'X');
+  assert.deepEqual([x.best, x.worst, x.teamsOn], [1000, -1000, 1]); // only A is ON; B and C are all-over
+  assert.deepEqual(playerRanges({ lines: [], players, cents: 1000 }).map((p) => p.best), [0, 0]);
+});

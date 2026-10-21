@@ -146,3 +146,23 @@ body{margin:0;background:radial-gradient(ellipse 80% 40% at 50% 0,var(--navy) 0,
 .app-admin-actions .c99-pill{flex:1;min-width:0}
 
 .admin-pre{margin:var(--space-4) 0 0;padding:var(--space-3);max-height:260px;overflow:auto;background:var(--panel);border:var(--border-box) solid var(--chrome-500);font-family:var(--font-score);font-size:12px;line-height:16px;white-space:pre-wrap;word-break:break-word}
+
+/* Money Board: candlestick chart */
+.mb-panel{margin-bottom:var(--space-8)}
+.mb{display:block;width:100%;max-width:760px;height:auto;margin:0 auto}
+.mb-grid{stroke:var(--chrome-700);stroke-width:1;stroke-dasharray:3 5}
+.mb-zero{stroke:var(--chrome-300);stroke-width:2}
+.mb-axis{fill:var(--ink-muted);font-family:var(--font-score);font-size:12px}
+.mb-wick{stroke:var(--ink);stroke-width:2}
+.mb-up{fill:var(--go-green)}
+.mb-down{fill:var(--signal-red)}
+.mb-val{fill:var(--ink);font-family:var(--font-display);font-weight:800;font-size:12px;letter-spacing:.02em}
+.mb-name{fill:var(--ink);font-family:var(--font-display);font-weight:700;font-size:12px;letter-spacing:.04em;text-transform:uppercase}
+.mb-name.is-me{fill:var(--gold)}
+.mb-actual{fill:var(--gold);stroke:var(--ink-on-chrome);stroke-width:2}
+.mb-legend{display:flex;flex-wrap:wrap;gap:var(--space-4) var(--space-6);justify-content:center;margin:var(--space-3) 0 0;font-family:var(--font-display);font-weight:800;font-size:12px;letter-spacing:.06em;text-transform:uppercase}
+.mb-key{display:inline-block;width:12px;height:12px;margin-right:var(--space-2);vertical-align:-1px}
+.mb-key--up{background:var(--go-green)}
+.mb-key--down{background:var(--signal-red)}
+.mb-key--actual{background:var(--gold);transform:rotate(45deg) scale(.8)}
+.sr-only{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}

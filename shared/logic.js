@@ -76,3 +76,28 @@ export function computeBoard({ lines, players, wins = {}, cents }) {
     teamsOn: teams.filter((t) => t.on).length,
   };
 }
+
+/**
+ * Best and worst outcome for each player, from the picks as they stand.
+ * Best: every bet they are in (that is ON) goes their way. Worst: every one loses.
+ * Money is cents; a winner's share is the team pool split evenly among the winning side.
+ */
+export function playerRanges({ lines, players, cents }) {
+  const rows = Object.fromEntries(players.map((p) => [p.id, { id: p.id, name: p.name, best: 0, worst: 0, teamsOn: 0 }]));
+  for (const { team } of lines) {
+    const over = players.filter((p) => p.picks?.[team] === 'over');
+    const under = players.filter((p) => p.picks?.[team] === 'under');
+    if (!over.length || !under.length) continue; // OFF: nobody risks anything
+    const n = over.length + under.length;
+    for (const group of [over, under]) {
+      const gain = Math.floor((cents * n) / group.length) - cents;
+      for (const p of group) {
+        const r = rows[p.id];
+        r.best += gain;
+        r.worst -= cents;
+        r.teamsOn += 1;
+      }
+    }
+  }
+  return Object.values(rows).sort((a, b) => b.best - a.best || a.name.localeCompare(b.name));
+}

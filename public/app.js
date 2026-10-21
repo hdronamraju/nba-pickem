@@ -1,4 +1,4 @@
-import { computeBoard, formatMoney } from '/shared/logic.js';
+import { computeBoard, formatMoney, playerRanges } from '/shared/logic.js';
 import { groupByDivision } from '/shared/teams.js';
 
 const $ = (id) => document.getElementById(id);
@@ -160,6 +160,77 @@ function payoutsView(board) {
     </div></section>`;
 }
 
+// ---- Money Board: a candlestick per player, worst outcome to best outcome ----
+function niceStep(rough) {
+  const pow = 10 ** Math.floor(Math.log10(rough));
+  const f = rough / pow;
+  return (f <= 1 ? 1 : f <= 2 ? 2 : f <= 5 ? 5 : 10) * pow;
+}
+
+const whole = (c) => Math.round(c / 100) * 100; // chart labels in whole dollars so they never collide
+const axisMoney = (c) => (c < 0 ? `-${formatMoney(-c)}` : formatMoney(c));
+
+function moneyBoard(board) {
+  const players = allPlayers();
+  const ranges = playerRanges({ lines: S.lines, players, cents: stake() });
+  if (!ranges.length) return '';
+  const anyOn = ranges.some((r) => r.teamsOn > 0);
+  // The actual outcome appears once the season is underway and wins decide at least one bet.
+  const hasActual = S.seasonStarted && board.teams.some((t) => t.leader);
+  const net = hasActual ? Object.fromEntries(board.players.map((p) => [p.id, p.net])) : {};
+
+  const n = ranges.length;
+  const W = Math.max(320, 48 + n * 44), H = 300;
+  const padL = 56, padR = 10, padT = 30, padB = 34;
+  const plotH = H - padT - padB;
+  const hi = Math.max(0, ...ranges.map((r) => r.best), ...Object.values(net));
+  const lo = Math.min(0, ...ranges.map((r) => r.worst), ...Object.values(net));
+  const spanD = Math.max(1, (hi - lo) / 100);
+  const stepC = niceStep(spanD / 4) * 100;
+  const top = Math.max(stepC, Math.ceil(hi / stepC) * stepC);
+  const bottom = Math.min(0, Math.floor(lo / stepC) * stepC);
+  const y = (c) => padT + ((top - c) / (top - bottom)) * plotH;
+  const slot = (W - padL - padR) / n;
+  const bw = Math.min(22, slot * 0.5);
+
+  let grid = '';
+  for (let t = bottom; t <= top; t += stepC) {
+    grid += `<line class="${t === 0 ? 'mb-zero' : 'mb-grid'}" x1="${padL}" x2="${W - padR}" y1="${y(t)}" y2="${y(t)}"/>`
+      + `<text class="mb-axis" x="${padL - 6}" y="${y(t) + 4}" text-anchor="end">${esc(axisMoney(t))}</text>`;
+  }
+
+  const candles = ranges.map((r, i) => {
+    const cx = padL + slot * (i + 0.5);
+    const mine = r.id === S.me.id;
+    const label = r.name.length > 7 ? `${r.name.slice(0, 6)}.` : r.name;
+    const cap = (c) => `<line class="mb-wick" x1="${cx - bw / 2}" x2="${cx + bw / 2}" y1="${y(c)}" y2="${y(c)}"/>`;
+    let g = '';
+    if (r.teamsOn > 0) {
+      g += `<rect class="mb-up" x="${cx - bw / 2}" y="${y(r.best)}" width="${bw}" height="${Math.max(0, y(0) - y(r.best))}"/>`
+        + `<rect class="mb-down" x="${cx - bw / 2}" y="${y(0)}" width="${bw}" height="${Math.max(0, y(r.worst) - y(0))}"/>`
+        + `<line class="mb-wick" x1="${cx}" x2="${cx}" y1="${y(r.best)}" y2="${y(r.worst)}"/>${cap(r.best)}${cap(r.worst)}`
+        + `<text class="mb-val" x="${cx}" y="${y(r.best) - 6}" text-anchor="middle">${esc(formatMoney(whole(r.best), { signed: true }))}</text>`
+        + `<text class="mb-val" x="${cx}" y="${y(r.worst) + 15}" text-anchor="middle">${esc(formatMoney(whole(r.worst), { signed: true }))}</text>`;
+    }
+    if (hasActual && r.id in net) {
+      const cy = y(net[r.id]);
+      g += `<polygon class="mb-actual" points="${cx},${cy - 8} ${cx + 8},${cy} ${cx},${cy + 8} ${cx - 8},${cy}"><title>${esc(r.name)}: ${esc(formatMoney(net[r.id], { signed: true }))} so far</title></polygon>`;
+    }
+    return `<g>${g}<text class="mb-name${mine ? ' is-me' : ''}" x="${cx}" y="${H - 12}" text-anchor="middle">${esc(label)}</text></g>`;
+  }).join('');
+
+  const rows = ranges.map((r) => `<tr><th scope="row">${esc(r.name)}</th><td>${esc(formatMoney(r.best, { signed: true }))}</td><td>${esc(formatMoney(r.worst, { signed: true }))}</td>${hasActual ? `<td>${esc(formatMoney(net[r.id] ?? 0, { signed: true }))}</td>` : ''}</tr>`).join('');
+  return `<section class="c99-panel pay mb-panel" aria-labelledby="mb-h">
+    <header class="c99-panel__header"><span id="mb-h">Money Board</span><span class="c99-panel__caret" aria-hidden="true"></span></header>
+    <div class="c99-panel__body">
+      ${anyOn ? `<svg class="mb" viewBox="0 0 ${W} ${H}" role="img" aria-label="Best and worst outcome for each player">${grid}${candles}</svg>
+      <p class="mb-legend"><span><i class="mb-key mb-key--up"></i>Best case</span><span><i class="mb-key mb-key--down"></i>Worst case</span>${hasActual ? '<span><i class="mb-key mb-key--actual"></i>Actual so far</span>' : ''}</p>
+      <table class="sr-only"><caption>Best and worst outcome for each player</caption><thead><tr><th>Player</th><th>Best</th><th>Worst</th>${hasActual ? '<th>Actual so far</th>' : ''}</tr></thead><tbody>${rows}</tbody></table>`
+      : '<p>No bets are on yet. A team turns on when one friend picks Over and another picks Under.</p>'}
+      <p class="app-note">Best case: every bet you are in goes your way. Worst case: every one misses. ${esc(formatMoney(stake()))} a team, and it moves as picks change.</p>
+    </div></section>`;
+}
+
 // Conference > division > teams A-Z.
 function grouped(entries, card) {
   return groupByDivision(entries).map((c) => `<section class="conf" aria-label="${esc(c.conference)}">
@@ -184,7 +255,7 @@ function renderView(board) {
     return;
   }
   el.innerHTML = board
-    ? grouped(board.teams, (t) => resultCard(t, nameOf))
+    ? moneyBoard(board) + grouped(board.teams, (t) => resultCard(t, nameOf))
     : '<section class="c99-panel pay"><div class="c99-panel__body"><p>Picks are hidden until the host locks it in.</p></div></section>';
 }
 
