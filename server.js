@@ -27,10 +27,10 @@ export function createApp({
 } = {}) {
   let state = {
     players: [], lines: TEAMS, linesSource: LINES_SOURCE, phase: 'open', lockedAt: null,
-    settings: { showPicks: true, seasonStarted: false }, wins: {}, winsMeta: { updatedAt: null, lastAttempt: null, error: null },
+    settings: { showPicks: true, seasonStarted: false, showGroup: false }, wins: {}, winsMeta: { updatedAt: null, lastAttempt: null, error: null },
   };
   try { state = { ...state, ...JSON.parse(fs.readFileSync(dataFile, 'utf8')) }; } catch { /* first run */ }
-  state.settings = { showPicks: true, seasonStarted: false, ...state.settings };
+  state.settings = { showPicks: true, seasonStarted: false, showGroup: false, ...state.settings };
   // Older saves had a per-player lock; treat those players as ready for the group lock.
   for (const p of state.players) {
     if (p.ready === undefined) p.ready = !!p.lockedAt;
@@ -64,6 +64,7 @@ export function createApp({
       wins: state.settings.seasonStarted ? state.wins : {},
       winsMeta: state.winsMeta,
       seasonStarted: state.settings.seasonStarted,
+      showGroup: state.settings.showGroup,
       maxPlayers: MAX_PLAYERS,
       stakeCents,
       phase: state.phase,
@@ -128,7 +129,7 @@ export function createApp({
 
   function gameStatus() {
     return {
-      phase: state.phase, showPicks: state.settings.showPicks, seasonStarted: state.settings.seasonStarted,
+      phase: state.phase, showPicks: state.settings.showPicks, seasonStarted: state.settings.seasonStarted, showGroup: state.settings.showGroup,
       ready: state.players.filter((p) => p.ready).length, total: state.players.length,
       notReady: state.players.filter((p) => !p.ready).map((p) => p.name),
     };
@@ -161,8 +162,8 @@ export function createApp({
     }
     if (url.pathname === '/api/admin/settings' && req.method === 'PUT') {
       const body = await readJson(req);
-      const keys = ['showPicks', 'seasonStarted'].filter((k) => k in body);
-      if (!keys.length || keys.some((k) => typeof body[k] !== 'boolean')) throw fail(400, 'Send showPicks and/or seasonStarted as true or false.');
+      const keys = ['showPicks', 'seasonStarted', 'showGroup'].filter((k) => k in body);
+      if (!keys.length || keys.some((k) => typeof body[k] !== 'boolean')) throw fail(400, 'Send showPicks, seasonStarted and/or showGroup as true or false.');
       for (const k of keys) state.settings[k] = body[k];
       commit();
       return send(res, 200, gameStatus());

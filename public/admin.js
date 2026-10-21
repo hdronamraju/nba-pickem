@@ -59,10 +59,14 @@ $('form').addEventListener('submit', async (e) => {
 // ---- game: live picks switch, lock and unlock ----
 let showPicks = true;
 let seasonStarted = false;
+let showGroup = false;
 function paintGame(g) {
   showPicks = g.showPicks;
   $('live').textContent = `Show picks live: ${g.showPicks ? 'on' : 'off'}`;
   $('live').setAttribute('aria-pressed', String(g.showPicks));
+  showGroup = g.showGroup;
+  $('group').textContent = `Group page: ${g.showGroup ? 'shown' : 'hidden'}`;
+  $('group').setAttribute('aria-pressed', String(g.showGroup));
   seasonStarted = g.seasonStarted;
   $('season').textContent = `Season started: ${g.seasonStarted ? 'on' : 'off'}`;
   $('season').setAttribute('aria-pressed', String(g.seasonStarted));
@@ -104,4 +108,10 @@ $('checkespn').addEventListener('click', async () => {
   out.hidden = false; out.textContent = 'Asking ESPN...';
   const { status, data } = await call('GET', undefined, '/api/admin/espn');
   out.textContent = status === 200 ? JSON.stringify(data, null, 2) : (data.error || 'Could not reach ESPN.');
+});
+
+$('group').addEventListener('click', async () => {
+  const { status, data } = await call('PUT', { showGroup: !showGroup }, '/api/admin/settings');
+  if (status === 200) { paintGame(data); gameOut(true, data.showGroup ? 'The Group page is visible to players.' : 'The Group page is hidden. All entries are kept.'); }
+  else gameOut(false, data.error || 'Could not change that.');
 });

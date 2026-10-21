@@ -231,3 +231,14 @@ test('admin ESPN check needs the password and reports what ESPN sent', async (t)
   const bad = await boot2(t, { fetchRaw: async () => { throw new Error('nope'); } });
   assert.equal((await bad.host('GET', '/api/admin/espn')).status, 502);
 });
+
+test('the Group page is hidden by default, can be shown, and never touches entries', async (t) => {
+  const s = await boot2(t);
+  const a = await s.join('Ana'); await s.pickAll(a, 'over');
+  assert.equal((await s.call('GET', '/api/state', null, a)).body.showGroup, false);
+  assert.equal((await s.host('PUT', '/api/admin/settings', { showGroup: true })).body.showGroup, true);
+  assert.equal((await s.call('GET', '/api/state', null, a)).body.showGroup, true);
+  assert.equal((await s.host('PUT', '/api/admin/settings', { showGroup: false })).body.showGroup, false);
+  const me = (await s.call('GET', '/api/state', null, a)).body.me;
+  assert.equal(Object.keys(me.picks).length, 30); // entries intact
+});

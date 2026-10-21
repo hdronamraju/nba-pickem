@@ -209,11 +209,14 @@ function render() {
   if ($('mylink').value !== link) $('mylink').value = link;
 
   const locked = S.phase === 'locked';
-  if (locked && view === 'picks') view = 'group';
+  // The Group page can be hidden by the host (admin switch). Entries are untouched; it just isn't shown.
+  if (!S.showGroup && view === 'group') view = locked ? 'payouts' : 'picks';
+  if (locked && view === 'picks') view = S.showGroup ? 'group' : 'payouts';
   const tabs = document.querySelectorAll('[data-view]');
   tabs.forEach((b) => {
     b.setAttribute('aria-pressed', String(b.dataset.view === view));
     if (b.dataset.view === 'picks') b.hidden = locked;
+    if (b.dataset.view === 'group') b.hidden = !S.showGroup;
   });
 
   $('stake').textContent = formatMoney(stake());
@@ -297,7 +300,7 @@ $('host-form').addEventListener('submit', async (e) => {
 // ---- the lock-in moment ----
 function startLockAnimation() {
   const n = S.lines.length;
-  view = 'group';
+  if (S.showGroup) view = 'group';
   lockAnimUntil = Date.now() + n * CARD_STAGGER_MS + 1000;
   const banner = $('lockbanner');
   $('lockbanner-n').textContent = `${n} Teams`;
