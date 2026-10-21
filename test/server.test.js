@@ -70,6 +70,7 @@ test('ready needs all 30 picks, and changing a pick clears it', async (t) => {
 
 test('live picks: joined players see everyone, visitors see nothing, tokens never leak', async (t) => {
   const s = await boot2(t);
+  await s.host('PUT', '/api/admin/settings', { showGroup: true });
   const [a, b] = [await s.join('Ana'), await s.join('Bo')];
   await s.call('PUT', '/api/picks', { team: TEAMS[0].team, side: 'over' }, a);
 
@@ -241,4 +242,33 @@ test('the Group page is hidden by default, can be shown, and never touches entri
   assert.equal((await s.host('PUT', '/api/admin/settings', { showGroup: false })).body.showGroup, false);
   const me = (await s.call('GET', '/api/state', null, a)).body.me;
   assert.equal(Object.keys(me.picks).length, 30); // entries intact
+});
+
+test('hiding the Group page hides friends\' picks everywhere; showing it brings both back; entries untouched', async (t) => {
+  const s = await boot2(t);
+  const [a, b] = [await s.join('Ana'), await s.join('Bo')];
+  await s.pickAll(a, 'over'); await s.pickAll(b, 'under');
+  const view = async () => (await s.call('GET', '/api/state', null, a)).body;
+
+  let st = await view();
+  assert.equal(st.showGroup, false); // hidden by default
+  assert.equal(st.everyone, null);   // no friend picks are even sent
+  assert.equal(Object.keys(st.me.picks).length, 30); // your own picks are still yours
+
+  await s.host('PUT', '/api/admin/settings', { showGroup: true });
+  st = await view();
+  assert.equal(st.everyone.length, 2);
+  assert.equal(st.everyone.find((p) => p.name === 'Bo').picks[TEAMS[0].team], 'under');
+
+  await s.host('PUT', '/api/admin/settings', { showGroup: false });
+  assert.equal((await view()).everyone, null);
+
+  await s.host('PUT', '/api/admin/settings', { showGroup: true, showPicks: false }); // live picks off also hides them
+  assert.equal((await view()).everyone, null);
+  await s.host('PUT', '/api/admin/settings', { showPicks: true, showGroup: false });
+
+  await s.ready(a); await s.ready(b);
+  await s.host('POST', '/api/admin/lock');
+  assert.equal((await view()).everyone.length, 2); // payouts still work after the lock
+  assert.equal(Object.keys((await view()).me.picks).length, 30);
 });

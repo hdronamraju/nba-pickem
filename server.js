@@ -52,10 +52,11 @@ export function createApp({
 
   const byToken = (token) => (token ? state.players.find((p) => p.token === token) : undefined);
 
-  // Everyone's picks are visible to joined players while picking if "show picks live" is on,
-  // and to every joined player once the host locks. Visitors who haven't joined never see them.
+  // Friends' picks are sent to joined players only while "show picks live" AND the Group page are on
+  // (so hiding the Group page hides them everywhere), and after the lock (payouts need them).
+  // Visitors who haven't joined never get them.
   function publicState(viewer) {
-    const canSee = viewer && (state.phase === 'locked' || state.settings.showPicks);
+    const canSee = viewer && (state.phase === 'locked' || (state.settings.showPicks && state.settings.showGroup));
     return {
       lines: state.lines,
       linesSource: state.linesSource,

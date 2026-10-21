@@ -264,7 +264,7 @@ function renderRoster() {
     `<div class="c99-option"><span class="c99-option__label ${S.me && p.id === S.me.id ? 'is-me' : ''}">${esc(p.name)}</span><span class="c99-option__value ${p.ready ? 'is-on' : 'is-off'}">${p.ready ? 'Ready' : `${p.picked}/${S.lines.length}`}</span></div>`).join('');
   $('roster').innerHTML = `<div class="c99-panel"><header class="c99-panel__header"><span>Roster (${S.players.length}/${S.maxPlayers})</span><span class="c99-panel__caret" aria-hidden="true"></span></header>
     <div class="c99-panel__body">${rows || '<p class="app-note">Nobody yet. Be the first.</p>'}
-    <p class="app-note">${S.phase === 'locked' ? 'Locked. Picks are final.' : S.showPicks ? "Everyone's picks are on the Group tab." : 'Picks stay hidden until the host locks it in.'}</p></div></div>`;
+    <p class="app-note">${S.phase === 'locked' ? 'Locked. Picks are final.' : S.showPicks && S.showGroup ? "Everyone's picks are on the Group tab." : 'Picks are hidden for now.'}</p></div></div>`;
 }
 
 function render() {
