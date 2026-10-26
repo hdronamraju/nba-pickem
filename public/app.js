@@ -160,75 +160,74 @@ function payoutsView(board) {
     </div></section>`;
 }
 
-// ---- Money Board: a candlestick per player, worst outcome to best outcome ----
+// ---- Money Board: worst-to-best range for each player ----
 function niceStep(rough) {
   const pow = 10 ** Math.floor(Math.log10(rough));
   const f = rough / pow;
   return (f <= 1 ? 1 : f <= 2 ? 2 : f <= 5 ? 5 : 10) * pow;
 }
 
-const whole = (c) => Math.round(c / 100) * 100; // chart labels in whole dollars so they never collide
+const whole = (c) => Math.round(c / 100) * 100; // whole dollars keep the numbers easy to read
+const signedWhole = (c) => formatMoney(whole(c), { signed: true });
 const axisMoney = (c) => (c < 0 ? `-${formatMoney(-c)}` : formatMoney(c));
 
 function moneyBoard(board) {
-  const players = allPlayers();
-  const ranges = playerRanges({ lines: S.lines, players, cents: stake() });
+  const ranges = playerRanges({ lines: S.lines, players: allPlayers(), cents: stake() });
   if (!ranges.length) return '';
-  const anyOn = ranges.some((r) => r.teamsOn > 0);
-  // The actual outcome appears once the season is underway and wins decide at least one bet.
-  const hasActual = S.seasonStarted && board.teams.some((t) => t.leader);
-  const net = hasActual ? Object.fromEntries(board.players.map((p) => [p.id, p.net])) : {};
+  const live = ranges.filter((r) => r.teamsOn > 0);
+  const panel = (inner) => `<section class="c99-panel pay mb-panel" aria-labelledby="mb-h">
+    <header class="c99-panel__header"><span id="mb-h">Money Board</span><span class="c99-panel__caret" aria-hidden="true"></span></header>
+    <div class="c99-panel__body">${inner}</div></section>`;
+  if (!live.length) return panel('<p>No bets are on yet. A team turns on when one friend picks Over and another picks Under.</p>');
 
-  const n = ranges.length;
-  const W = Math.max(320, 48 + n * 44), H = 300;
-  const padL = 56, padR = 10, padT = 30, padB = 34;
-  const plotH = H - padT - padB;
-  const hi = Math.max(0, ...ranges.map((r) => r.best), ...Object.values(net));
-  const lo = Math.min(0, ...ranges.map((r) => r.worst), ...Object.values(net));
-  const spanD = Math.max(1, (hi - lo) / 100);
-  const stepC = niceStep(spanD / 4) * 100;
+  // "Today": what each player would win or lose if the season ended now, from current ESPN wins.
+  const hasToday = S.seasonStarted && board.teams.some((t) => t.leader);
+  const today = hasToday ? Object.fromEntries(board.players.map((p) => [p.id, p.net])) : {};
+
+  const hi = Math.max(0, ...live.map((r) => r.best), ...live.map((r) => today[r.id] ?? 0));
+  const lo = Math.min(0, ...live.map((r) => r.worst), ...live.map((r) => today[r.id] ?? 0));
+  const stepC = niceStep(Math.max(1, (hi - lo) / 100) / 4) * 100;
   const top = Math.max(stepC, Math.ceil(hi / stepC) * stepC);
-  const bottom = Math.min(0, Math.floor(lo / stepC) * stepC);
-  const y = (c) => padT + ((top - c) / (top - bottom)) * plotH;
-  const slot = (W - padL - padR) / n;
-  const bw = Math.min(22, slot * 0.5);
+  const bottom = Math.min(-stepC, Math.floor(lo / stepC) * stepC);
+  const pct = (c) => ((c - bottom) / (top - bottom)) * 100;
+  const zero = pct(0);
 
-  let grid = '';
-  for (let t = bottom; t <= top; t += stepC) {
-    grid += `<line class="${t === 0 ? 'mb-zero' : 'mb-grid'}" x1="${padL}" x2="${W - padR}" y1="${y(t)}" y2="${y(t)}"/>`
-      + `<text class="mb-axis" x="${padL - 6}" y="${y(t) + 4}" text-anchor="end">${esc(axisMoney(t))}</text>`;
-  }
+  const ticks = [];
+  for (let t = bottom; t <= top; t += stepC) ticks.push(t);
+  const axis = ticks.map((t, i) => {
+    const shift = i === 0 ? '0' : i === ticks.length - 1 ? '-100%' : '-50%';
+    return `<i style="left:${pct(t)}%;transform:translateX(${shift})">${esc(axisMoney(t))}</i>`;
+  }).join('');
+  const lines = ticks.filter((t) => t !== 0).map((t) => `<i class="mb-tick" style="left:${pct(t)}%"></i>`).join('');
 
-  const candles = ranges.map((r, i) => {
-    const cx = padL + slot * (i + 0.5);
+  const rows = ranges.map((r) => {
     const mine = r.id === S.me.id;
-    const label = r.name.length > 7 ? `${r.name.slice(0, 6)}.` : r.name;
-    const cap = (c) => `<line class="mb-wick" x1="${cx - bw / 2}" x2="${cx + bw / 2}" y1="${y(c)}" y2="${y(c)}"/>`;
-    let g = '';
-    if (r.teamsOn > 0) {
-      g += `<rect class="mb-up" x="${cx - bw / 2}" y="${y(r.best)}" width="${bw}" height="${Math.max(0, y(0) - y(r.best))}"/>`
-        + `<rect class="mb-down" x="${cx - bw / 2}" y="${y(0)}" width="${bw}" height="${Math.max(0, y(r.worst) - y(0))}"/>`
-        + `<line class="mb-wick" x1="${cx}" x2="${cx}" y1="${y(r.best)}" y2="${y(r.worst)}"/>${cap(r.best)}${cap(r.worst)}`
-        + `<text class="mb-val" x="${cx}" y="${y(r.best) - 6}" text-anchor="middle">${esc(formatMoney(whole(r.best), { signed: true }))}</text>`
-        + `<text class="mb-val" x="${cx}" y="${y(r.worst) + 15}" text-anchor="middle">${esc(formatMoney(whole(r.worst), { signed: true }))}</text>`;
-    }
-    if (hasActual && r.id in net) {
-      const cy = y(net[r.id]);
-      g += `<polygon class="mb-actual" points="${cx},${cy - 8} ${cx + 8},${cy} ${cx},${cy + 8} ${cx - 8},${cy}"><title>${esc(r.name)}: ${esc(formatMoney(net[r.id], { signed: true }))} so far</title></polygon>`;
-    }
-    return `<g>${g}<text class="mb-name${mine ? ' is-me' : ''}" x="${cx}" y="${H - 12}" text-anchor="middle">${esc(label)}</text></g>`;
+    const on = r.teamsOn > 0;
+    const nowVal = on && hasToday ? today[r.id] ?? 0 : null;
+    const label = on
+      ? `${r.name}: worst ${signedWhole(r.worst)}, best ${signedWhole(r.best)}${nowVal !== null ? `, today ${signedWhole(nowVal)}` : ''}`
+      : `${r.name}: no bets on yet`;
+    const track = on
+      ? `<i class="mb-wick" style="left:${pct(r.worst)}%;width:${pct(r.best) - pct(r.worst)}%"></i>
+         <i class="mb-body mb-body--up" style="left:${zero}%;width:${pct(r.best) - zero}%"></i>
+         <i class="mb-body mb-body--down" style="left:${pct(r.worst)}%;width:${zero - pct(r.worst)}%"></i>
+         ${nowVal !== null ? `<i class="mb-now" style="left:${pct(nowVal)}%"></i>` : ''}`
+      : '';
+    return `<li class="mb-row${mine ? ' mb-row--me' : ''}" aria-label="${esc(label)}">
+      <span class="mb-name" title="${esc(r.name)}">${esc(r.name)}</span>
+      <span class="mb-track" aria-hidden="true">${lines}<i class="mb-zero" style="left:${zero}%"></i>${track}</span>
+      <span class="mb-num mb-num--worst" aria-hidden="true">${on ? signedWhole(r.worst) : '--'}</span>
+      <span class="mb-num mb-num--best" aria-hidden="true">${on ? signedWhole(r.best) : '--'}</span>
+      ${hasToday ? `<span class="mb-num mb-num--now" aria-hidden="true">${nowVal !== null ? signedWhole(nowVal) : '--'}</span>` : ''}
+    </li>`;
   }).join('');
 
-  const rows = ranges.map((r) => `<tr><th scope="row">${esc(r.name)}</th><td>${esc(formatMoney(r.best, { signed: true }))}</td><td>${esc(formatMoney(r.worst, { signed: true }))}</td>${hasActual ? `<td>${esc(formatMoney(net[r.id] ?? 0, { signed: true }))}</td>` : ''}</tr>`).join('');
-  return `<section class="c99-panel pay mb-panel" aria-labelledby="mb-h">
-    <header class="c99-panel__header"><span id="mb-h">Money Board</span><span class="c99-panel__caret" aria-hidden="true"></span></header>
-    <div class="c99-panel__body">
-      ${anyOn ? `<svg class="mb" viewBox="0 0 ${W} ${H}" role="img" aria-label="Best and worst outcome for each player">${grid}${candles}</svg>
-      <p class="mb-legend"><span><i class="mb-key mb-key--up"></i>Best case</span><span><i class="mb-key mb-key--down"></i>Worst case</span>${hasActual ? '<span><i class="mb-key mb-key--actual"></i>Actual so far</span>' : ''}</p>
-      <table class="sr-only"><caption>Best and worst outcome for each player</caption><thead><tr><th>Player</th><th>Best</th><th>Worst</th>${hasActual ? '<th>Actual so far</th>' : ''}</tr></thead><tbody>${rows}</tbody></table>`
-      : '<p>No bets are on yet. A team turns on when one friend picks Over and another picks Under.</p>'}
-      <p class="app-note">Best case: every bet you are in goes your way. Worst case: every one misses. ${esc(formatMoney(stake()))} a team, and it moves as picks change.</p>
-    </div></section>`;
+  return panel(`<div class="mb${hasToday ? ' mb--now' : ''}">
+      <div class="mb-head" aria-hidden="true"><span class="mb-axis">${axis}</span><span class="mb-col mb-col--worst">Worst</span><span class="mb-col mb-col--best">Best</span>${hasToday ? '<span class="mb-col mb-col--now">Today</span>' : ''}</div>
+      <ul class="mb-list">${rows}</ul>
+    </div>
+    <p class="mb-legend"><span><i class="mb-key mb-key--up"></i>Best case</span><span><i class="mb-key mb-key--down"></i>Worst case</span>${hasToday ? '<span><i class="mb-key mb-key--now"></i>Today</span>' : ''}</p>
+    <p class="app-note">Worst case: every bet a player is in loses. Best case: every one wins. ${esc(formatMoney(stake()))} a team, and it moves as picks change.${hasToday ? ' Today: each player\'s result if the season ended right now, using current win totals.' : ''}</p>`);
 }
 
 // Conference > division > teams A-Z.
