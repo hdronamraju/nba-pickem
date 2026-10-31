@@ -136,14 +136,17 @@ export function createApp({
     };
   }
 
-  function lockGame() {
+  // `force` skips the ready check ("Lock anyway"): players are locked with the picks they have.
+  // Nobody's picks are touched; teams they haven't picked simply count as no pick.
+  function lockGame({ force = false } = {}) {
     if (state.phase === 'locked') throw fail(409, 'Already locked.');
     if (state.players.length < 2) throw fail(409, 'Need at least 2 players to lock in.');
     const notReady = state.players.filter((p) => !p.ready).map((p) => p.name);
-    if (notReady.length) throw fail(409, `Waiting on ${notReady.join(', ')}.`);
+    if (notReady.length && !force) throw fail(409, `Waiting on ${notReady.join(', ')}.`);
     state.phase = 'locked';
     state.lockedAt = now();
     commit();
+    return notReady;
   }
 
   async function adminApi(req, res, url) {
@@ -174,8 +177,9 @@ export function createApp({
       catch (err) { throw fail(502, `Could not read ESPN: ${String(err.message || err).slice(0, 160)}`); }
     }
     if (url.pathname === '/api/admin/lock' && req.method === 'POST') {
-      lockGame();
-      return send(res, 200, gameStatus());
+      const body = await readJson(req);
+      const lockedWithout = lockGame({ force: body.force === true });
+      return send(res, 200, { ...gameStatus(), lockedWithout });
     }
     if (url.pathname === '/api/admin/unlock' && req.method === 'POST') {
       state.phase = 'open';

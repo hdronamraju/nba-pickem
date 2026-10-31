@@ -355,16 +355,27 @@ function renderHost() {
 }
 
 $('hostpw').value = session.get(HOSTPW_KEY) ?? '';
-$('host-form').addEventListener('submit', async (e) => {
-  e.preventDefault();
+async function hostLock(force) {
   const err = $('host-error');
   err.hidden = true;
+  $('lockforce-host').hidden = true;
   const pw = $('hostpw').value;
-  const res = await fetch('/api/admin/lock', { method: 'POST', headers: { 'x-admin-password': pw } });
+  const res = await fetch('/api/admin/lock', {
+    method: 'POST', headers: { 'x-admin-password': pw, 'content-type': 'application/json' }, body: JSON.stringify({ force }),
+  });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) { err.textContent = data.error || 'Could not lock.'; err.hidden = false; return; }
+  if (!res.ok) {
+    err.textContent = data.error || 'Could not lock.'; err.hidden = false;
+    $('lockforce-host').hidden = !(res.status === 409 && /Waiting/.test(data.error || ''));
+    return;
+  }
   session.set(HOSTPW_KEY, pw);
   load(); // the server also pushes the change to everyone's screen
+}
+$('host-form').addEventListener('submit', (e) => { e.preventDefault(); hostLock(false); });
+$('lockforce-host').addEventListener('click', () => {
+  const waiting = S.players.filter((p) => !p.ready).map((p) => p.name);
+  if (confirm(`Lock everyone now? ${waiting.join(', ')} ${waiting.length === 1 ? "hasn't" : "haven't"} tapped ready. They are locked with the picks they have; teams they haven't picked count as no pick. Nobody's picks change.`)) hostLock(true);
 });
 
 // ---- the lock-in moment ----

@@ -272,3 +272,35 @@ test('hiding the Group page hides friends\' picks everywhere; showing it brings 
   assert.equal((await view()).everyone.length, 2); // payouts still work after the lock
   assert.equal(Object.keys((await view()).me.picks).length, 30);
 });
+
+test('Lock anyway locks everyone as they stand, without touching any picks', async (t) => {
+  const s = await boot2(t);
+  const [a, b, c] = [await s.join('Ana'), await s.join('Bo'), await s.join('Cy')];
+  await s.pickAll(a, 'over'); await s.pickAll(b, 'under'); await s.ready(a); await s.ready(b);
+  for (const team of TEAMS.slice(0, 5)) await s.call('PUT', '/api/picks', { team: team.team, side: 'under' }, c); // Cy has 5 picks, not ready
+  const snapshot = async () => JSON.stringify((await s.host('GET', '/api/admin/players')).body.players.map((p) => [p.name, p.picked]));
+  const picksOf = async (tok) => JSON.stringify((await s.call('GET', '/api/state', null, tok)).body.me.picks);
+  const before = [await snapshot(), await picksOf(a), await picksOf(b), await picksOf(c)];
+
+  const refused = await s.host('POST', '/api/admin/lock');
+  assert.equal(refused.status, 409);
+  assert.match(refused.body.error, /Waiting on Cy/);
+  assert.equal((await s.call('POST', '/api/admin/lock', { force: true })).status, 401); // password still required
+  assert.equal((await s.host('POST', '/api/admin/lock', { force: 'yes' })).status, 409); // only a real true forces it
+
+  const forced = await s.host('POST', '/api/admin/lock', { force: true });
+  assert.equal(forced.status, 200);
+  assert.deepEqual(forced.body.lockedWithout, ['Cy']);
+  assert.equal(forced.body.phase, 'locked');
+
+  assert.deepEqual([await snapshot(), await picksOf(a), await picksOf(b), await picksOf(c)], before); // nothing changed
+  assert.equal((await s.call('PUT', '/api/picks', { team: TEAMS[9].team, side: 'over' }, c)).status, 403); // Cy is locked too
+  assert.equal((await s.host('POST', '/api/admin/unlock')).status, 200);
+  assert.equal((await s.host('POST', '/api/admin/lock', { force: true })).status, 200);
+});
+
+test('Lock anyway still needs two players', async (t) => {
+  const s = await boot2(t);
+  await s.join('Ana');
+  assert.equal((await s.host('POST', '/api/admin/lock', { force: true })).status, 409);
+});

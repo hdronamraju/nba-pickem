@@ -60,10 +60,12 @@ $('form').addEventListener('submit', async (e) => {
 let showPicks = true;
 let seasonStarted = false;
 let showGroup = false;
+let notReady = [];
 function paintGame(g) {
   showPicks = g.showPicks;
   $('live').textContent = `Show picks live: ${g.showPicks ? 'on' : 'off'}`;
   $('live').setAttribute('aria-pressed', String(g.showPicks));
+  notReady = g.notReady ?? [];
   showGroup = g.showGroup;
   $('group').textContent = `Group page: ${g.showGroup ? 'shown' : 'hidden'}`;
   $('group').setAttribute('aria-pressed', String(g.showGroup));
@@ -87,8 +89,16 @@ $('live').addEventListener('click', async () => {
   else gameOut(false, data.error || 'Could not change that.');
 });
 $('lockall').addEventListener('click', async () => {
-  const { status, data } = await call('POST', undefined, '/api/admin/lock');
+  const { status, data } = await call('POST', {}, '/api/admin/lock');
   if (status === 200) { paintGame(data); gameOut(true, 'Locked. Everyone just saw the animation.'); loadPlayers(); }
+  else gameOut(false, `${data.error || 'Could not lock.'}${status === 409 && /Waiting/.test(data.error || '') ? ' Use Lock anyway to lock them as they stand.' : ''}`);
+});
+$('lockforce').addEventListener('click', async () => {
+  await loadGame(); // refresh who isn't ready before asking
+  const who = notReady.length ? `${notReady.join(', ')} ${notReady.length === 1 ? "hasn't" : "haven't"} tapped ready. They are locked with the picks they have; teams they haven't picked count as no pick.` : 'Everyone is ready.';
+  if (!confirm(`Lock everyone now? ${who} Nobody's picks change. You can unlock afterwards.`)) return;
+  const { status, data } = await call('POST', { force: true }, '/api/admin/lock');
+  if (status === 200) { paintGame(data); gameOut(true, data.lockedWithout.length ? `Locked. ${data.lockedWithout.join(', ')} locked with the picks they had.` : 'Locked. Everyone was ready.'); loadPlayers(); }
   else gameOut(false, data.error || 'Could not lock.');
 });
 $('unlockall').addEventListener('click', async () => {
