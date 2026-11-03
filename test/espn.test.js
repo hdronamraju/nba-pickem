@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseStandings, fetchWins, fetchRaw } from '../shared/espn.js';
+import { parseStandings, parseGames, fetchWins, fetchRaw } from '../shared/espn.js';
 
 // Shape modelled on ESPN's standings response (children[] -> standings.entries[] -> stats[]).
 const fixture = {
@@ -36,4 +36,12 @@ test('fetchRaw returns the raw stat list for one team plus the season info', asy
   assert.equal(raw.team, 'Boston Celtics');
   assert.equal(raw.seasonInfo.seasonDisplayName, '2026-27');
   assert.deepEqual(raw.stats.map((s) => s.name), ['wins', 'losses']);
+});
+
+test('parseGames adds wins and losses, skipping teams missing either', () => {
+  const json = { children: [{ standings: { entries: [
+    { team: { displayName: 'Boston Celtics' }, stats: [{ name: 'wins', value: 7 }, { name: 'losses', value: 3 }] },
+    { team: { displayName: 'Miami Heat' }, stats: [{ name: 'wins', value: 0 }] },
+  ] } }] };
+  assert.deepEqual(parseGames(json), { 'Boston Celtics': 10 });
 });

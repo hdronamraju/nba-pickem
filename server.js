@@ -4,7 +4,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { TEAMS, LINES_SOURCE, WINS_SOURCE_URL } from './shared/teams.js';
-import { fetchWins as fetchEspnWins, fetchRaw as fetchEspnRaw } from './shared/espn.js';
+import { fetchStandings as fetchEspnStandings, fetchRaw as fetchEspnRaw } from './shared/espn.js';
 import { parseLines, linesToText } from './shared/lines.js';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
@@ -21,13 +21,13 @@ export function createApp({
   dataFile = path.join(process.env.DATA_DIR || path.join(ROOT, 'data'), 'state.json'),
   adminPassword = process.env.ADMIN_PASSWORD,
   stakeCents = STAKE_CENTS,
-  fetchWins = () => fetchEspnWins(TEAMS.map((t) => t.team)),
+  fetchStandings = () => fetchEspnStandings(TEAMS.map((t) => t.team)),
   fetchRaw = () => fetchEspnRaw(),
   now = () => Date.now(),
 } = {}) {
   let state = {
     players: [], lines: TEAMS, linesSource: LINES_SOURCE, phase: 'open', lockedAt: null,
-    settings: { showPicks: true, seasonStarted: false, showGroup: false }, wins: {}, winsMeta: { updatedAt: null, lastAttempt: null, error: null },
+    settings: { showPicks: true, seasonStarted: false, showGroup: false }, wins: {}, games: {}, winsMeta: { updatedAt: null, lastAttempt: null, error: null },
   };
   try { state = { ...state, ...JSON.parse(fs.readFileSync(dataFile, 'utf8')) }; } catch { /* first run */ }
   state.settings = { showPicks: true, seasonStarted: false, showGroup: false, ...state.settings };
@@ -63,6 +63,7 @@ export function createApp({
       winsSourceUrl: WINS_SOURCE_URL,
       // Win totals only count once the host says the regular season has started.
       wins: state.settings.seasonStarted ? state.wins : {},
+      games: state.settings.seasonStarted ? (state.games ?? {}) : {},
       winsMeta: state.winsMeta,
       seasonStarted: state.settings.seasonStarted,
       showGroup: state.settings.showGroup,
@@ -88,7 +89,9 @@ export function createApp({
     }
     meta.lastAttempt = t;
     try {
-      state.wins = await fetchWins();
+      const got = await fetchStandings();
+      state.wins = got.wins;
+      state.games = got.games ?? {};
       meta.updatedAt = t;
       meta.error = null;
     } catch (err) {

@@ -13,13 +13,35 @@ export function parseStandings(json) {
   return wins;
 }
 
-export async function fetchWins(expectedTeams, fetchImpl = fetch) {
+// Games played per team (wins + losses), used to project a full-season pace.
+export function parseGames(json) {
+  const games = {};
+  for (const group of json?.children ?? []) {
+    for (const entry of group?.standings?.entries ?? []) {
+      const name = entry?.team?.displayName;
+      const stats = entry?.stats ?? [];
+      const w = stats.find((s) => s.name === 'wins');
+      const l = stats.find((s) => s.name === 'losses');
+      if (name && w && l && Number.isFinite(Number(w.value)) && Number.isFinite(Number(l.value))) {
+        games[name] = Number(w.value) + Number(l.value);
+      }
+    }
+  }
+  return games;
+}
+
+export async function fetchStandings(expectedTeams, fetchImpl = fetch) {
   const res = await fetchImpl(ESPN_URL, { headers: { accept: 'application/json' } });
   if (!res.ok) throw new Error(`ESPN responded ${res.status}`);
-  const wins = parseStandings(await res.json());
+  const json = await res.json();
+  const wins = parseStandings(json);
   const missing = expectedTeams.filter((t) => !(t in wins));
   if (missing.length) throw new Error(`ESPN standings missing: ${missing.join(', ')}`);
-  return wins;
+  return { wins, games: parseGames(json) };
+}
+
+export async function fetchWins(expectedTeams, fetchImpl = fetch) {
+  return (await fetchStandings(expectedTeams, fetchImpl)).wins;
 }
 
 // For the admin "Check ESPN" button: what did ESPN actually send? (Used to verify we read the right numbers.)

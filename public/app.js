@@ -1,4 +1,4 @@
-import { computeBoard, formatMoney, playerRanges } from '/shared/logic.js';
+import { computeBoard, formatMoney, playerRanges, projectWins } from '/shared/logic.js';
 import { groupByDivision } from '/shared/teams.js';
 
 const $ = (id) => document.getElementById(id);
@@ -180,9 +180,12 @@ function moneyBoard(board) {
     <div class="c99-panel__body">${inner}</div></section>`;
   if (!live.length) return panel('<p>No bets are on yet. A team turns on when one friend picks Over and another picks Under.</p>');
 
-  // "Today": what each player would win or lose if the season ended now, from current ESPN wins.
-  const hasToday = S.seasonStarted && board.teams.some((t) => t.leader);
-  const today = hasToday ? Object.fromEntries(board.players.map((p) => [p.id, p.net])) : {};
+  // "Pace": what each player would win or lose if every team keeps its current win rate over 82 games.
+  const paceBoard = S.seasonStarted
+    ? computeBoard({ lines: S.lines, players: allPlayers(), wins: projectWins(S.wins, S.games), cents: stake() })
+    : null;
+  const hasToday = !!paceBoard && paceBoard.teams.some((t) => t.leader);
+  const today = hasToday ? Object.fromEntries(paceBoard.players.map((p) => [p.id, p.net])) : {};
 
   const hi = Math.max(0, ...live.map((r) => r.best), ...live.map((r) => today[r.id] ?? 0));
   const lo = Math.min(0, ...live.map((r) => r.worst), ...live.map((r) => today[r.id] ?? 0));
@@ -205,7 +208,7 @@ function moneyBoard(board) {
     const on = r.teamsOn > 0;
     const nowVal = on && hasToday ? today[r.id] ?? 0 : null;
     const label = on
-      ? `${r.name}: worst ${signedWhole(r.worst)}, best ${signedWhole(r.best)}${nowVal !== null ? `, today ${signedWhole(nowVal)}` : ''}`
+      ? `${r.name}: worst ${signedWhole(r.worst)}, best ${signedWhole(r.best)}${nowVal !== null ? `, on current pace ${signedWhole(nowVal)}` : ''}`
       : `${r.name}: no bets on yet`;
     const track = on
       ? `<i class="mb-wick" style="left:${pct(r.worst)}%;width:${pct(r.best) - pct(r.worst)}%"></i>
@@ -223,11 +226,11 @@ function moneyBoard(board) {
   }).join('');
 
   return panel(`<div class="mb${hasToday ? ' mb--now' : ''}">
-      <div class="mb-head" aria-hidden="true"><span class="mb-axis">${axis}</span><span class="mb-col mb-col--worst">Worst</span><span class="mb-col mb-col--best">Best</span>${hasToday ? '<span class="mb-col mb-col--now">Today</span>' : ''}</div>
+      <div class="mb-head" aria-hidden="true"><span class="mb-axis">${axis}</span><span class="mb-col mb-col--worst">Worst</span><span class="mb-col mb-col--best">Best</span>${hasToday ? '<span class="mb-col mb-col--now">Pace</span>' : ''}</div>
       <ul class="mb-list">${rows}</ul>
     </div>
-    <p class="mb-legend"><span><i class="mb-key mb-key--up"></i>Best case</span><span><i class="mb-key mb-key--down"></i>Worst case</span>${hasToday ? '<span><i class="mb-key mb-key--now"></i>Today</span>' : ''}</p>
-    <p class="app-note">Worst case: every bet a player is in loses. Best case: every one wins. ${esc(formatMoney(stake()))} a team, and it moves as picks change.${hasToday ? ' Today: each player\'s result if the season ended right now, using current win totals.' : ''}</p>`);
+    <p class="mb-legend"><span><i class="mb-key mb-key--up"></i>Best case</span><span><i class="mb-key mb-key--down"></i>Worst case</span>${hasToday ? '<span><i class="mb-key mb-key--now"></i>If they keep up this pace</span>' : ''}</p>
+    <p class="app-note">Worst case: every bet a player is in loses. Best case: every one wins. ${esc(formatMoney(stake()))} a team, and it moves as picks change.${hasToday ? ' If they keep up this pace: each player\'s result if every team keeps its current win rate across an 82-game season.' : ''}</p>`);
 }
 
 // Conference > division > teams A-Z.

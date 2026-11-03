@@ -192,7 +192,7 @@ test('old per-player locks migrate to ready and the game stays open', async (t) 
 
 test('wins refresh keeps last good data when the fetch fails', async (t) => {
   let fail = false; let clock = 0;
-  const s = await boot2(t, { now: () => clock, fetchWins: async () => { if (fail) throw new Error('boom'); return { 'Miami Heat': 3 }; } });
+  const s = await boot2(t, { now: () => clock, fetchStandings: async () => { if (fail) throw new Error('boom'); return { wins: { 'Miami Heat': 3 }, games: { 'Miami Heat': 5 } }; } });
   await s.app.refreshWins();
   assert.equal(s.app.state().wins['Miami Heat'], 3);
   fail = true; clock += 23 * 3_600_000;
@@ -214,13 +214,15 @@ test('every team sits in exactly one division, 5 per division, grouped A-Z', asy
 });
 
 test('win totals stay hidden until the host starts the season', async (t) => {
-  const s = await boot2(t, { fetchWins: async () => ({ 'Boston Celtics': 4 }) });
+  const s = await boot2(t, { fetchStandings: async () => ({ wins: { 'Boston Celtics': 4 }, games: { 'Boston Celtics': 6 } }) });
   await s.app.refreshWins({ force: true });
   const before = (await s.call('GET', '/api/state')).body;
   assert.equal(before.seasonStarted, false);
   assert.deepEqual(before.wins, {});
+  assert.deepEqual(before.games, {});
   assert.equal((await s.host('PUT', '/api/admin/settings', { seasonStarted: true })).body.seasonStarted, true);
   assert.equal((await s.call('GET', '/api/state')).body.wins['Boston Celtics'], 4);
+  assert.equal((await s.call('GET', '/api/state')).body.games['Boston Celtics'], 6);
   assert.equal((await s.host('PUT', '/api/admin/settings', { seasonStarted: 'yes' })).status, 400);
   assert.equal((await s.host('PUT', '/api/admin/settings', { showPicks: false })).body.seasonStarted, true); // leaves the other setting alone
 });
