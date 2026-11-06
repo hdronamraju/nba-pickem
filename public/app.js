@@ -1,5 +1,6 @@
-import { computeBoard, formatMoney, playerRanges, projectWins } from '/shared/logic.js';
+import { computeBoard, formatMoney, playerRanges, expectedWins } from '/shared/logic.js';
 import { groupByDivision } from '/shared/teams.js';
+import { rootingGuide, buildReport } from '/shared/rooting.js';
 
 const $ = (id) => document.getElementById(id);
 const TOKEN_KEY = 'pickem.token';
@@ -180,12 +181,12 @@ function moneyBoard(board) {
     <div class="c99-panel__body">${inner}</div></section>`;
   if (!live.length) return panel('<p>No bets are on yet. A team turns on when one friend picks Over and another picks Under.</p>');
 
-  // "Pace": what each player would win or lose if every team keeps its current win rate over 82 games.
-  const paceBoard = S.seasonStarted
-    ? computeBoard({ lines: S.lines, players: allPlayers(), wins: projectWins(S.wins, S.games), cents: stake() })
+  // "Projected": what each player would win or lose if every team finishes at its projected win total.
+  const projBoard = S.seasonStarted
+    ? computeBoard({ lines: S.lines, players: allPlayers(), wins: expectedWins(S.wins, S.games ?? {}, S.projections ?? {}), cents: stake() })
     : null;
-  const hasToday = !!paceBoard && paceBoard.teams.some((t) => t.leader);
-  const today = hasToday ? Object.fromEntries(paceBoard.players.map((p) => [p.id, p.net])) : {};
+  const hasToday = !!projBoard && projBoard.teams.some((t) => t.leader);
+  const today = hasToday ? Object.fromEntries(projBoard.players.map((p) => [p.id, p.net])) : {};
 
   const hi = Math.max(0, ...live.map((r) => r.best), ...live.map((r) => today[r.id] ?? 0));
   const lo = Math.min(0, ...live.map((r) => r.worst), ...live.map((r) => today[r.id] ?? 0));
@@ -208,7 +209,7 @@ function moneyBoard(board) {
     const on = r.teamsOn > 0;
     const nowVal = on && hasToday ? today[r.id] ?? 0 : null;
     const label = on
-      ? `${r.name}: worst ${signedWhole(r.worst)}, best ${signedWhole(r.best)}${nowVal !== null ? `, on current pace ${signedWhole(nowVal)}` : ''}`
+      ? `${r.name}: worst ${signedWhole(r.worst)}, best ${signedWhole(r.best)}${nowVal !== null ? `, projected ${signedWhole(nowVal)}` : ''}`
       : `${r.name}: no bets on yet`;
     const track = on
       ? `<i class="mb-wick" style="left:${pct(r.worst)}%;width:${pct(r.best) - pct(r.worst)}%"></i>
@@ -226,11 +227,100 @@ function moneyBoard(board) {
   }).join('');
 
   return panel(`<div class="mb${hasToday ? ' mb--now' : ''}">
-      <div class="mb-head" aria-hidden="true"><span class="mb-axis">${axis}</span><span class="mb-col mb-col--worst">Worst</span><span class="mb-col mb-col--best">Best</span>${hasToday ? '<span class="mb-col mb-col--now">Pace</span>' : ''}</div>
+      <div class="mb-head" aria-hidden="true"><span class="mb-axis">${axis}</span><span class="mb-col mb-col--worst">Worst</span><span class="mb-col mb-col--best">Best</span>${hasToday ? '<span class="mb-col mb-col--now">Proj</span>' : ''}</div>
       <ul class="mb-list">${rows}</ul>
     </div>
-    <p class="mb-legend"><span><i class="mb-key mb-key--up"></i>Best case</span><span><i class="mb-key mb-key--down"></i>Worst case</span>${hasToday ? '<span><i class="mb-key mb-key--now"></i>If they keep up this pace</span>' : ''}</p>
-    <p class="app-note">Worst case: every bet a player is in loses. Best case: every one wins. ${esc(formatMoney(stake()))} a team, and it moves as picks change.${hasToday ? ' If they keep up this pace: each player\'s result if every team keeps its current win rate across an 82-game season.' : ''}</p>`);
+    <p class="mb-legend"><span><i class="mb-key mb-key--up"></i>Best case</span><span><i class="mb-key mb-key--down"></i>Worst case</span>${hasToday ? '<span><i class="mb-key mb-key--now"></i>Projected finish</span>' : ''}</p>
+    <p class="app-note">Worst case: every bet a player is in loses. Best case: every one wins. ${esc(formatMoney(stake()))} a team, and it moves as picks change.${hasToday ? ' Projected finish: each player\'s result if every team ends the season at its projected win total. ${esc(projNote())}' : ''}</p>`);
+}
+
+// Where the projected win totals came from, for the notes under the Money Board and Report.
+function projNote() {
+  const m = S.projMeta ?? {};
+  const have = Object.keys(S.projections ?? {}).length > 0;
+  if (!have) return "TeamRankings projections haven't loaded, so projections use each team's current win pace.";
+  const when = m.updatedAt ? new Date(m.updatedAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : null;
+  return `Projected wins from TeamRankings${when ? `, updated ${when}` : ''}${m.error ? ' (showing the last good update)' : ''}.`;
+}
+
+// ---- Root: who to cheer for in today's games ----
+let TODAY = null; // { games, error, day, at }
+let todayLoading = false;
+const TODAY_TTL_MS = 5 * 60_000;
+async function loadToday() {
+  todayLoading = true;
+  try { TODAY = { ...(await api('GET', '/api/today')), at: Date.now() }; }
+  catch { TODAY = { games: [], error: "Could not load today's games.", day: null, at: Date.now() - TODAY_TTL_MS + 30_000 }; }
+  todayLoading = false;
+  if (view === 'root') render();
+}
+
+const infoPanel = (title, inner) => `<section class="c99-panel pay" aria-label="${esc(title)}">
+  <header class="c99-panel__header"><span>${esc(title)}</span><span class="c99-panel__caret" aria-hidden="true"></span></header>
+  <div class="c99-panel__body">${inner}</div></section>`;
+
+function rootReason(r) {
+  const parts = [`${r.team}: you have ${r.side.toUpperCase()} ${r.line}`];
+  if (r.projected !== null) parts.push(`projected for ${Math.round(r.projected)} wins (${r.ahead === r.side ? 'you are winning this one' : 'you are losing this one'})`);
+  parts.push(`${formatMoney(r.weight)} to collect`);
+  return parts.join(', ');
+}
+
+function rootView() {
+  if (!TODAY || (Date.now() - TODAY.at > TODAY_TTL_MS && !todayLoading)) loadToday();
+  if (!TODAY) return infoPanel('Who To Root For', '<p>Loading today\'s games.</p>');
+  const guide = rootingGuide({ lines: S.lines, players: allPlayers(), meId: S.me.id, wins: S.wins, games: S.games ?? {}, projections: S.projections ?? {}, cents: stake(), schedule: TODAY.games });
+  const matters = guide.filter((g) => g.pick);
+  const idle = guide.filter((g) => !g.pick);
+  const row = (g) => `<li class="rt-row">
+      <div class="rt-top"><span class="rt-match">${esc(g.away)} at ${esc(g.home)}</span><span class="rt-when">${esc(g.state === 'in' ? 'Live: ' : '')}${esc(g.detail)}</span></div>
+      <div class="rt-pick">Root for <b>${esc(g.pick)}</b></div>
+      ${g.reasons.map((r) => `<p class="app-note">${esc(rootReason(r))}</p>`).join('')}
+    </li>`;
+  const head = TODAY.error ? `<p class="app-error" role="status">${esc(TODAY.error)} Showing the last games we had.</p>` : '';
+  if (!TODAY.games.length) return infoPanel('Who To Root For', `${head}<p>No games found for today. Check back on a game day.</p>`);
+  const body = matters.length
+    ? `<ul class="rt-list">${matters.map(row).join('')}</ul>`
+    : '<p>None of today\'s games touch a bet you are in.</p>';
+  const rest = idle.length ? `<p class="app-note">Nothing riding for you: ${esc(idle.map((g) => `${g.away} at ${g.home}`).join('; '))}.</p>` : '';
+  return infoPanel('Who To Root For', `${head}${body}${rest}
+    <p class="app-note">Biggest swing first. Only bets that are ON count (someone took the other side). Teams close to their line count for more. Tonight's games, from ESPN.</p>`);
+}
+
+// ---- Report: who is in the money on projected wins, and what moved ----
+const etDay = () => new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+const arrow = (c) => (c === null ? '--' : c === 0 ? '0' : `${c > 0 ? '▲' : '▼'} ${formatMoney(Math.abs(whole(c)))}`);
+const deltaTone = (c) => (c === null || c === 0 ? '' : c > 0 ? ' pos' : ' neg');
+
+function reportView() {
+  const rep = buildReport({ lines: S.lines, players: allPlayers(), wins: S.wins, games: S.games ?? {}, projections: S.projections ?? {}, cents: stake(), history: S.history ?? [], today: etDay() });
+  if (!S.seasonStarted || !rep.ready) {
+    return infoPanel('Report', '<p>The report starts once the host starts the season and ESPN win totals have loaded.</p>');
+  }
+  const nameOf = Object.fromEntries(allPlayers().map((p) => [p.id, p.name]));
+  const fmtDay = (d) => new Date(`${d}T12:00:00Z`).toLocaleDateString([], { month: 'short', day: 'numeric', timeZone: 'UTC' });
+  const rows = rep.players.map((p, i) => `<li class="rp-row${p.id === S.me.id ? ' rp-row--me' : ''}">
+      <span class="rp-rank">${i + 1}</span><span class="rp-name">${esc(p.name)}</span>
+      <span class="rp-num${p.net > 0 ? ' pos' : p.net < 0 ? ' neg' : ''}">${esc(signedWhole(p.net))}</span>
+      <span class="rp-num rp-num--d${deltaTone(p.day)}">${esc(arrow(p.day))}</span>
+      <span class="rp-num rp-num--d${deltaTone(p.week)}">${esc(arrow(p.week))}</span></li>`).join('');
+  const base = rep.dayFrom
+    ? `Day is the change since ${fmtDay(rep.dayFrom)}${rep.weekFrom ? `; Week since ${fmtDay(rep.weekFrom)}` : '; Week appears once a week of updates has built up'}.`
+    : 'Daily and weekly changes appear after the second daily update.';
+  const money = infoPanel("Who's In The Money", `<div class="rp-head" aria-hidden="true"><span></span><span></span><span class="rp-num">Proj</span><span class="rp-num rp-num--d">Day</span><span class="rp-num rp-num--d">Week</span></div>
+    <ul class="rp-list">${rows}</ul>
+    <p class="app-note">If every team finishes at its projected win total, with ${esc(formatMoney(stake()))} a team. ${esc(projNote())} ${esc(base)}</p>`);
+
+  const teamRow = (t) => {
+    const flip = t.flippedDay ? '<span class="rp-flip">Flipped</span>' : t.flippedWeek ? '<span class="rp-flip rp-flip--wk">Flipped this week</span>' : '';
+    const side = t.leader.toUpperCase();
+    return `<li class="rp-team"><div class="rt-top"><span class="rt-match">${esc(t.team)} ${flip}</span><span class="rt-when">Line ${t.line}</span></div>
+      <p class="app-note">${t.games ? `${t.wins} ${t.wins === 1 ? 'win' : 'wins'} in ${t.games} games, projected ${t.projected.toFixed(1)}` : `Projected ${t.projected.toFixed(1)}`}: <b>${side}</b> is ahead.
+      Over: ${esc(t.over.map((id) => nameOf[id]).join(', '))}. Under: ${esc(t.under.map((id) => nameOf[id]).join(', '))}.</p></li>`;
+  };
+  const teams = infoPanel('Revised Projections', `<ul class="rt-list">${rep.teams.filter((t) => t.leader).map(teamRow).join('')}</ul>
+    <p class="app-note">Teams whose projection crossed the line are first, then the closest calls.</p>`);
+  return money + teams;
 }
 
 // Conference > division > teams A-Z.
@@ -250,6 +340,8 @@ function renderView(board) {
       : '<section class="c99-panel pay"><div class="c99-panel__body"><p>Payouts appear after the host locks it in.</p></div></section>';
     return;
   }
+  if (view === 'root') { el.innerHTML = rootView(); return; }
+  if (view === 'report') { el.innerHTML = reportView(); return; }
   const nameOf = Object.fromEntries((S.everyone ?? []).map((p) => [p.id, p.name]));
   const byTeam = board ? Object.fromEntries(board.teams.map((t) => [t.team, t])) : null;
   if (view === 'picks') {
@@ -274,7 +366,7 @@ function render() {
   $('join').hidden = joined;
   $('game').hidden = !joined;
   renderRoster();
-  $('sources').innerHTML = `Lines: ${esc(S.linesSource)} &middot; Wins: <a href="${esc(S.winsSourceUrl)}" rel="noopener">ESPN standings</a> &middot; Bets are between friends`;
+  $('sources').innerHTML = `Lines: ${esc(S.linesSource)} &middot; Wins: <a href="${esc(S.winsSourceUrl)}" rel="noopener">ESPN standings</a> &middot; Projections: <a href="${esc(S.projectionsSourceUrl)}" rel="noopener">TeamRankings</a> &middot; Bets are between friends`;
   if (!joined) return;
 
   document.title = `Pick'em: ${S.me.name}`;
@@ -285,11 +377,15 @@ function render() {
   // The Group page can be hidden by the host (admin switch). Entries are untouched; it just isn't shown.
   if (!S.showGroup && view === 'group') view = locked ? 'payouts' : 'picks';
   if (locked && view === 'picks') view = S.showGroup ? 'group' : 'payouts';
+  // Root and Report need everyone's picks, so they show up once picks are visible (after the lock, or live).
+  const haveBoard = !!S.everyone;
+  if (!haveBoard && (view === 'root' || view === 'report')) view = locked ? 'payouts' : 'picks';
   const tabs = document.querySelectorAll('[data-view]');
   tabs.forEach((b) => {
     b.setAttribute('aria-pressed', String(b.dataset.view === view));
     if (b.dataset.view === 'picks') b.hidden = locked;
     if (b.dataset.view === 'group') b.hidden = !S.showGroup;
+    if (b.dataset.view === 'root' || b.dataset.view === 'report') b.hidden = !haveBoard;
   });
 
   $('stake').textContent = formatMoney(stake());

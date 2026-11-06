@@ -7,6 +7,8 @@ Season win-total over/under for a small group of friends (3–10). One shared bo
 - **The host locks everyone at once.** When all players are ready, the host enters the admin password on the Group tab (or `/admin`) and presses **Lock It In**. Every screen plays a lock-in animation, and picks and lines freeze. `/admin` can unlock if it was a mistake. Optional click sound, off by default.
 - The stake is fixed at **$10 per team** (`STAKE_CENTS` to change it). Everyone sees the same dollar figures.
 - The over/unders are plain text on `/admin` (one team per line, nicknames OK). They freeze at the lock. `/admin` can also delete players.
+- **Projected finish.** The Money Board marker uses TeamRankings' projected final win totals (fetched with the standings, about once a day), not raw wins. If TeamRankings is down it falls back to each team's current win pace over 82 games.
+- **Root tab** (once picks are visible): today's games from ESPN, with who to cheer for based on your bets that are ON. **Report tab:** who is in the money on projected wins, the change since the last daily snapshot and about a week back, and teams whose projection crossed their line. Snapshots are kept once a day after the lock.
 - Win totals refresh from ESPN's standings about once a day. If a fetch fails, the last good numbers stay and the Payouts view says so.
 
 ## Run
@@ -22,7 +24,7 @@ No dependencies, Node 20+. State lives in `data/state.json` (or `$DATA_DIR/state
 
 - `server.js`: plain `node:http`, JSON file persistence, Server-Sent Events for live updates.
 - `shared/logic.js`: ON/OFF, pools and payouts in integer cents. Used by the server tests and the browser.
-- `shared/teams.js`: the 30 lines (Hoops Junkie). `shared/espn.js`: standings parser.
+- `shared/teams.js`: the 30 lines (Hoops Junkie). `shared/espn.js`: standings and scoreboard parsers. `shared/teamrankings.js`: projected-wins parser. `shared/rooting.js`: rooting guide and report.
 - `public/`: no-build front end. `tokens.css` is generated from the design system's `tokens.json`; `bundle.css` is its component stylesheet.
 
 ## Rules

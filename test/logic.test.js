@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { computeBoard, parseDollars, formatMoney, projectWins } from '../shared/logic.js';
+import { computeBoard, parseDollars, formatMoney, projectWins, expectedWins } from '../shared/logic.js';
 
 const mk = (name, picks) => ({ id: name.toLowerCase(), name, picks });
 
@@ -121,4 +121,12 @@ test('projectWins scales wins to an 82-game pace and skips teams with no games',
   const players = [mk('Al', { A: 'over' }), mk('Bo', { A: 'under' })];
   const b = computeBoard({ lines: [{ team: 'A', line: 45.5 }], players, wins: p, cents: 500 });
   assert.equal(b.teams[0].leader, 'over'); // 3-0 start paces past the line, though 3 wins is nowhere near 45.5
+});
+
+test('expectedWins prefers a published projection and falls back to pace', () => {
+  const e = expectedWins({ A: 3, B: 1 }, { A: 3, B: 2 }, { A: 45.5, C: 60, D: NaN });
+  assert.equal(e.A, 45.5);
+  assert.equal(e.B, 41);
+  assert.equal(e.C, 60);
+  assert.equal('D' in e, false);
 });

@@ -37,6 +37,16 @@ export function projectWins(wins, games, season = SEASON_GAMES) {
 }
 
 /**
+ * Best available full-season win projection for each team: a published projection (TeamRankings) wins;
+ * a team without one falls back to its own pace.
+ */
+export function expectedWins(wins, games, projections = {}) {
+  const out = projectWins(wins, games);
+  for (const [team, v] of Object.entries(projections ?? {})) if (Number.isFinite(v)) out[team] = v;
+  return out;
+}
+
+/**
  * Work out every team's bet and every player's projected result.
  *
  * @param lines   [{ team, line }]
