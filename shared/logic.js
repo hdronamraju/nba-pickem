@@ -20,6 +20,32 @@ export function formatMoney(cents, { signed = false } = {}) {
   return cents > 0 ? `+${body}` : cents < 0 ? `-${body}` : body;
 }
 
+export const SEASON_GAMES = 82;
+
+/**
+ * "If they keep up this pace": scale each team's wins to a full season.
+ * A team with no games played yet is left out (no pace to project).
+ * Returns whole-number-free floats; compare against the line as usual.
+ */
+export function projectWins(wins, games, season = SEASON_GAMES) {
+  const out = {};
+  for (const [team, w] of Object.entries(wins ?? {})) {
+    const g = games?.[team];
+    if (Number.isFinite(w) && Number.isFinite(g) && g > 0) out[team] = (w / g) * season;
+  }
+  return out;
+}
+
+/**
+ * Best available full-season win projection for each team: a published projection (TeamRankings) wins;
+ * a team without one falls back to its own pace.
+ */
+export function expectedWins(wins, games, projections = {}) {
+  const out = projectWins(wins, games);
+  for (const [team, v] of Object.entries(projections ?? {})) if (Number.isFinite(v)) out[team] = v;
+  return out;
+}
+
 /**
  * Work out every team's bet and every player's projected result.
  *

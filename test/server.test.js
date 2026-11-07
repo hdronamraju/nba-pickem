@@ -8,7 +8,7 @@ import { TEAMS } from '../shared/teams.js';
 
 async function boot(opts = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pickem-'));
-  const app = createApp({ dataFile: path.join(dir, 'state.json'), ...opts });
+  const app = createApp({ dataFile: path.join(dir, 'state.json'), fetchProjections: async () => ({}), ...opts });
   await new Promise((r) => app.server.listen(0, r));
   const base = `http://localhost:${app.server.address().port}`;
   const call = async (method, url, body, token, headers = {}) => {
@@ -192,7 +192,7 @@ test('old per-player locks migrate to ready and the game stays open', async (t) 
 
 test('wins refresh keeps last good data when the fetch fails', async (t) => {
   let fail = false; let clock = 0;
-  const s = await boot2(t, { now: () => clock, fetchWins: async () => { if (fail) throw new Error('boom'); return { 'Miami Heat': 3 }; } });
+  const s = await boot2(t, { now: () => clock, fetchStandings: async () => { if (fail) throw new Error('boom'); return { wins: { 'Miami Heat': 3 }, games: { 'Miami Heat': 5 } }; } });
   await s.app.refreshWins();
   assert.equal(s.app.state().wins['Miami Heat'], 3);
   fail = true; clock += 23 * 3_600_000;
@@ -214,13 +214,15 @@ test('every team sits in exactly one division, 5 per division, grouped A-Z', asy
 });
 
 test('win totals stay hidden until the host starts the season', async (t) => {
-  const s = await boot2(t, { fetchWins: async () => ({ 'Boston Celtics': 4 }) });
+  const s = await boot2(t, { fetchStandings: async () => ({ wins: { 'Boston Celtics': 4 }, games: { 'Boston Celtics': 6 } }) });
   await s.app.refreshWins({ force: true });
   const before = (await s.call('GET', '/api/state')).body;
   assert.equal(before.seasonStarted, false);
   assert.deepEqual(before.wins, {});
+  assert.deepEqual(before.games, {});
   assert.equal((await s.host('PUT', '/api/admin/settings', { seasonStarted: true })).body.seasonStarted, true);
   assert.equal((await s.call('GET', '/api/state')).body.wins['Boston Celtics'], 4);
+  assert.equal((await s.call('GET', '/api/state')).body.games['Boston Celtics'], 6);
   assert.equal((await s.host('PUT', '/api/admin/settings', { seasonStarted: 'yes' })).status, 400);
   assert.equal((await s.host('PUT', '/api/admin/settings', { showPicks: false })).body.seasonStarted, true); // leaves the other setting alone
 });
@@ -303,4 +305,62 @@ test('Lock anyway still needs two players', async (t) => {
   const s = await boot2(t);
   await s.join('Ana');
   assert.equal((await s.host('POST', '/api/admin/lock', { force: true })).status, 409);
+});
+
+test("today's games are cached and ESPN errors keep the last good list", async (t) => {
+  let calls = 0; let fail = false; let clock = 1_000_000;
+  const g = [{ id: '1', state: 'pre', detail: '7 PM', home: 'Boston Celtics', away: 'Miami Heat', homeScore: null, awayScore: null }];
+  const s = await boot2(t, { now: () => clock, fetchScoreboard: async () => { calls += 1; if (fail) throw new Error('down'); return g; } });
+  assert.equal((await s.call('GET', '/api/today')).status, 401); // joined players only
+  const a = await s.join('Al');
+  assert.deepEqual((await s.call('GET', '/api/today', undefined, a)).body.games, g);
+  await s.call('GET', '/api/today', undefined, a);
+  assert.equal(calls, 1); // second hit inside 10 minutes comes from cache
+  clock += 11 * 60_000; fail = true;
+  const r = (await s.call('GET', '/api/today', undefined, a)).body;
+  assert.deepEqual(r.games, g);
+  assert.match(r.error, /down/);
+});
+
+test('a daily snapshot is kept once the game is locked and the season is on', async (t) => {
+  let clock = Date.parse('2026-11-04T15:00:00Z');
+  let standings = { wins: { 'Boston Celtics': 3 }, games: { 'Boston Celtics': 3 } };
+  const s = await boot2(t, { now: () => clock, fetchStandings: async () => standings });
+  const a = await s.join('Al'); const b = await s.join('Bo');
+  await s.call('PUT', '/api/picks', { team: 'Boston Celtics', side: 'over' }, a);
+  await s.call('PUT', '/api/picks', { team: 'Boston Celtics', side: 'under' }, b);
+  await s.host('PUT', '/api/admin/settings', { seasonStarted: true });
+  await s.app.refreshWins({ force: true });
+  assert.equal(s.app.state().history.length, 0); // not locked yet
+  await s.host('POST', '/api/admin/lock', { force: true });
+  await s.app.refreshWins({ force: true });
+  await s.app.refreshWins({ force: true }); // same ET day: replaced, not duplicated
+  assert.equal(s.app.state().history.length, 1);
+  assert.equal(s.app.state().history[0].date, '2026-11-04');
+  assert.equal(s.app.state().history[0].leaders['Boston Celtics'], 'over'); // 3-0 paces to 82
+  clock += 24 * 3_600_000; standings = { wins: { 'Boston Celtics': 3 }, games: { 'Boston Celtics': 8 } };
+  await s.app.refreshWins({ force: true });
+  const pub = (await s.call('GET', '/api/state', undefined, a)).body;
+  assert.equal(pub.history.length, 2);
+  assert.equal(pub.history[1].leaders['Boston Celtics'], 'under'); // 3-5 paces to 31
+});
+
+test('projected wins are fetched separately, stay hidden until the season starts, and survive a failed fetch', async (t) => {
+  let fail = false;
+  const s = await boot2(t, {
+    fetchStandings: async () => ({ wins: { 'Boston Celtics': 4 }, games: { 'Boston Celtics': 6 } }),
+    fetchProjections: async () => { if (fail) throw new Error('tr down'); return { 'Boston Celtics': 51.3 }; },
+  });
+  await s.app.refreshWins({ force: true });
+  assert.deepEqual((await s.call('GET', '/api/state')).body.projections, {});
+  await s.host('PUT', '/api/admin/settings', { seasonStarted: true });
+  const on = (await s.call('GET', '/api/state')).body;
+  assert.equal(on.projections['Boston Celtics'], 51.3);
+  assert.equal(on.projMeta.error, null);
+  fail = true;
+  await s.app.refreshWins({ force: true });
+  const after = (await s.call('GET', '/api/state')).body;
+  assert.equal(after.projections['Boston Celtics'], 51.3); // last good kept
+  assert.match(after.projMeta.error, /tr down/);
+  assert.equal(after.wins['Boston Celtics'], 4); // ESPN wins are unaffected
 });

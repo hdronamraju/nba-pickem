@@ -4,8 +4,10 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { TEAMS, LINES_SOURCE, WINS_SOURCE_URL } from './shared/teams.js';
-import { fetchWins as fetchEspnWins, fetchRaw as fetchEspnRaw } from './shared/espn.js';
+import { fetchStandings as fetchEspnStandings, fetchScoreboard as fetchEspnScoreboard, fetchRaw as fetchEspnRaw } from './shared/espn.js';
 import { parseLines, linesToText } from './shared/lines.js';
+import { fetchProjections as fetchTrProjections, TR_URL } from './shared/teamrankings.js';
+import { makeSnapshot } from './shared/rooting.js';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const MAX_PLAYERS = 10;
@@ -21,13 +23,15 @@ export function createApp({
   dataFile = path.join(process.env.DATA_DIR || path.join(ROOT, 'data'), 'state.json'),
   adminPassword = process.env.ADMIN_PASSWORD,
   stakeCents = STAKE_CENTS,
-  fetchWins = () => fetchEspnWins(TEAMS.map((t) => t.team)),
+  fetchStandings = () => fetchEspnStandings(TEAMS.map((t) => t.team)),
+  fetchProjections = () => (process.env.DISABLE_ESPN === '1' ? Promise.resolve({}) : fetchTrProjections(TEAMS.map((t) => t.team))),
   fetchRaw = () => fetchEspnRaw(),
+  fetchScoreboard = () => (process.env.DISABLE_ESPN === '1' ? Promise.resolve([]) : fetchEspnScoreboard()),
   now = () => Date.now(),
 } = {}) {
   let state = {
     players: [], lines: TEAMS, linesSource: LINES_SOURCE, phase: 'open', lockedAt: null,
-    settings: { showPicks: true, seasonStarted: false, showGroup: false }, wins: {}, winsMeta: { updatedAt: null, lastAttempt: null, error: null },
+    settings: { showPicks: true, seasonStarted: false, showGroup: false }, wins: {}, games: {}, projections: {}, projMeta: { updatedAt: null, error: null }, history: [], winsMeta: { updatedAt: null, lastAttempt: null, error: null },
   };
   try { state = { ...state, ...JSON.parse(fs.readFileSync(dataFile, 'utf8')) }; } catch { /* first run */ }
   state.settings = { showPicks: true, seasonStarted: false, showGroup: false, ...state.settings };
@@ -63,6 +67,11 @@ export function createApp({
       winsSourceUrl: WINS_SOURCE_URL,
       // Win totals only count once the host says the regular season has started.
       wins: state.settings.seasonStarted ? state.wins : {},
+      games: state.settings.seasonStarted ? (state.games ?? {}) : {},
+      projections: state.settings.seasonStarted ? (state.projections ?? {}) : {},
+      projMeta: state.projMeta ?? { updatedAt: null, error: null },
+      projectionsSourceUrl: TR_URL,
+      history: canSee ? (state.history ?? []).slice(-14) : [],
       winsMeta: state.winsMeta,
       seasonStarted: state.settings.seasonStarted,
       showGroup: state.settings.showGroup,
@@ -79,6 +88,26 @@ export function createApp({
     };
   }
 
+  // ET calendar day, so "today" matches the NBA schedule rather than UTC.
+  const dayKey = (ms) => new Date(ms).toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+
+  // One snapshot a day (the latest refresh wins) of who is up and who is down on pace, for the daily/weekly report.
+  function recordSnapshot(t) {
+    if (!state.settings.seasonStarted || state.phase !== 'locked' || state.players.length < 2) return;
+    const snap = makeSnapshot({ lines: state.lines, players: state.players, wins: state.wins, games: state.games, projections: state.projections, cents: stakeCents }, dayKey(t));
+    state.history = [...(state.history ?? []).filter((h) => h.date !== snap.date), snap].slice(-400);
+  }
+
+  // Today's games, cached briefly so friends opening the tab don't each hit ESPN.
+  let todayCache = { at: 0, games: [], error: null };
+  async function todaysGames() {
+    const t = now();
+    if (t - todayCache.at < 10 * 60_000) return todayCache;
+    try { todayCache = { at: t, games: await fetchScoreboard(), error: null }; }
+    catch (err) { todayCache = { ...todayCache, at: t - 8 * 60_000, error: String(err.message || err).slice(0, 160) }; } // retry in ~2 min
+    return todayCache;
+  }
+
   async function refreshWins({ force = false } = {}) {
     const t = now();
     const meta = state.winsMeta;
@@ -88,12 +117,22 @@ export function createApp({
     }
     meta.lastAttempt = t;
     try {
-      state.wins = await fetchWins();
+      const got = await fetchStandings();
+      state.wins = got.wins;
+      state.games = got.games ?? {};
       meta.updatedAt = t;
       meta.error = null;
     } catch (err) {
       meta.error = String(err.message || err).slice(0, 200); // keep last good wins
     }
+    // Projected final wins are a separate source: if it fails, the last good ones stay (or the app falls back to pace).
+    try {
+      state.projections = await fetchProjections();
+      state.projMeta = { updatedAt: t, error: null };
+    } catch (err) {
+      state.projMeta = { updatedAt: state.projMeta?.updatedAt ?? null, error: String(err.message || err).slice(0, 200) };
+    }
+    if (!meta.error) recordSnapshot(t);
     commit();
   }
 
@@ -240,6 +279,11 @@ export function createApp({
 
     const me = byToken(token);
     if (!me) throw fail(401, 'Join first.');
+
+    if (req.method === 'GET' && url.pathname === '/api/today') {
+      const { games, error } = await todaysGames();
+      return send(res, 200, { games, error, day: dayKey(now()) });
+    }
 
     if (req.method === 'PUT' && url.pathname === '/api/picks') {
       const { team, side } = await readJson(req);
