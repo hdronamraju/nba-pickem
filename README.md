@@ -7,7 +7,8 @@ Season win-total over/under for a small group of friends (3–10). One shared bo
 - **The host locks everyone at once.** When all players are ready, the host enters the admin password on the Group tab (or `/admin`) and presses **Lock It In**. Every screen plays a lock-in animation, and picks and lines freeze. `/admin` can unlock if it was a mistake. Optional click sound, off by default.
 - The stake is fixed at **$10 per team** (`STAKE_CENTS` to change it). Everyone sees the same dollar figures.
 - The over/unders are plain text on `/admin` (one team per line, nicknames OK). They freeze at the lock. `/admin` can also delete players.
-- **Projected finish.** The Money Board marker uses TeamRankings' projected final win totals (fetched with the standings, about once a day), not raw wins. If TeamRankings is down it falls back to each team's current win pace over 82 games.
+- **One group link after the lock.** Once the host locks it in, the plain site URL shows the board to anyone who has it: they tap their name and see their card, the Group page, Root and Report. Nothing can be changed that way (every write still needs a player's own token), and nobody new can join a locked board. Personal links keep working, and unlocking closes the group link again.
+- **Projected finish.** The Money Board marker uses TeamRankings' projected final win totals (fetched with the standings, about once a day), not raw wins. If TeamRankings is down it falls back to each team's current win pace over 82 games, and if ESPN's games-played numbers are missing too, to current wins, so the marker never disappears. `/admin` shows when each feed last worked and its last error.
 - **Root tab** (once picks are visible): today's games from ESPN, with who to cheer for based on your bets that are ON. **Report tab:** who is in the money on projected wins, the change since the last daily snapshot and about a week back, and teams whose projection crossed their line. Snapshots are kept once a day after the lock.
 - Win totals refresh from ESPN's standings about once a day. If a fetch fails, the last good numbers stay and the Payouts view says so.
 
@@ -31,7 +32,7 @@ No dependencies, Node 20+. State lives in `data/state.json` (or `$DATA_DIR/state
 
 - A team is ON only if at least one player took OVER and one took UNDER. Pool = $10 × players on that team.
 - OVER wins if wins > line (lines end in .5, so no pushes). Winners split the pool equally; leftover cents go to the first winners alphabetically.
-- No accounts: your browser holds a token. Clear your site data and you lose your card.
+- No accounts: your browser holds a token. Clear your site data and you lose your card (until the lock; after it, the group link gets you back in read-only).
 
 ## Deploy to Fly.io
 

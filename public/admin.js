@@ -72,9 +72,18 @@ function paintGame(g) {
   seasonStarted = g.seasonStarted;
   $('season').textContent = `Season started: ${g.seasonStarted ? 'on' : 'off'}`;
   $('season').setAttribute('aria-pressed', String(g.seasonStarted));
+  paintFeeds(g.feeds);
   $('game-status').textContent = g.phase === 'locked'
     ? 'LOCKED. Picks and lines are frozen.'
     : `Open. ${g.ready} of ${g.total} ready${g.notReady.length ? `. Waiting on ${g.notReady.join(', ')}.` : '.'}`;
+}
+// Daily data fetches: when each last worked, how many teams came back, and the last error if any.
+function paintFeeds(f) {
+  if (!f) return;
+  const when = (t) => (t ? new Date(t).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : 'never');
+  const espn = `ESPN standings: ${f.winsTeams} teams of wins, ${f.gamesTeams} with games played, updated ${when(f.winsUpdatedAt)}${f.winsError ? `. Last error: ${f.winsError}` : ''}.`;
+  const tr = `TeamRankings projections: ${f.projTeams} teams, updated ${when(f.projUpdatedAt)}${f.projError ? `. Last error: ${f.projError}` : ''}.`;
+  $('feeds').textContent = `${espn} ${tr}`;
 }
 async function loadGame() {
   const { status, data } = await call('GET', undefined, '/api/admin/status');

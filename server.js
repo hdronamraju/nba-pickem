@@ -56,11 +56,12 @@ export function createApp({
 
   const byToken = (token) => (token ? state.players.find((p) => p.token === token) : undefined);
 
-  // Friends' picks are sent to joined players only while "show picks live" AND the Group page are on
-  // (so hiding the Group page hides them everywhere), and after the lock (payouts need them).
-  // Visitors who haven't joined never get them.
+  // Friends' picks are sent to joined players while "show picks live" AND the Group page are on
+  // (so hiding the Group page hides them everywhere). After the lock the board is open to anyone with
+  // the site's link: picks are frozen, so the plain URL works as one group link and nobody needs a personal one.
+  // Before the lock, visitors who haven't joined never get them.
   function publicState(viewer) {
-    const canSee = viewer && (state.phase === 'locked' || (state.settings.showPicks && state.settings.showGroup));
+    const canSee = state.phase === 'locked' || (!!viewer && state.settings.showPicks && state.settings.showGroup);
     return {
       lines: state.lines,
       linesSource: state.linesSource,
@@ -172,6 +173,13 @@ export function createApp({
       phase: state.phase, showPicks: state.settings.showPicks, seasonStarted: state.settings.seasonStarted, showGroup: state.settings.showGroup,
       ready: state.players.filter((p) => p.ready).length, total: state.players.length,
       notReady: state.players.filter((p) => !p.ready).map((p) => p.name),
+      // How the daily data fetches are doing, so a silent failure shows up in /admin.
+      feeds: {
+        winsUpdatedAt: state.winsMeta?.updatedAt ?? null, winsError: state.winsMeta?.error ?? null,
+        winsTeams: Object.keys(state.wins ?? {}).length, gamesTeams: Object.keys(state.games ?? {}).length,
+        projUpdatedAt: state.projMeta?.updatedAt ?? null, projError: state.projMeta?.error ?? null,
+        projTeams: Object.keys(state.projections ?? {}).length,
+      },
     };
   }
 
@@ -264,6 +272,7 @@ export function createApp({
 
     if (req.method === 'POST' && url.pathname === '/api/join') {
       const body = await readJson(req);
+      if (state.phase === 'locked') throw fail(403, 'Picks are locked, so nobody new can join.');
       const name = String(body.name ?? '').trim().replace(/\s+/g, ' ').slice(0, NAME_MAX);
       if (!name) throw fail(400, 'Enter a name.');
       if (state.players.some((p) => p.name.toLowerCase() === name.toLowerCase())) throw fail(409, 'That name is taken.');
@@ -278,12 +287,15 @@ export function createApp({
     }
 
     const me = byToken(token);
-    if (!me) throw fail(401, 'Join first.');
 
-    if (req.method === 'GET' && url.pathname === '/api/today') {
+    // Today's games: joined players, or anyone once the board is locked (the group link).
+    if (req.method === 'GET' && url.pathname === '/api/today' && (me || state.phase === 'locked')) {
       const { games, error } = await todaysGames();
       return send(res, 200, { games, error, day: dayKey(now()) });
     }
+
+    // Everything below changes data, so it always needs a player's own token.
+    if (!me) throw fail(401, 'Join first.');
 
     if (req.method === 'PUT' && url.pathname === '/api/picks') {
       const { team, side } = await readJson(req);

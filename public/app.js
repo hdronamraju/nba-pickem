@@ -6,6 +6,7 @@ const $ = (id) => document.getElementById(id);
 const TOKEN_KEY = 'pickem.token';
 const SOUND_KEY = 'pickem.sound';
 const HOSTPW_KEY = 'pickem.hostpw';
+const VIEWAS_KEY = 'pickem.viewas'; // group link: which player this browser picked "I'm ..." as
 const CARD_STAGGER_MS = 80;
 const store = {
   get(k) { try { return localStorage.getItem(k); } catch { return null; } },
@@ -54,9 +55,21 @@ async function load() {
     const wasOpen = S && S.phase === 'open';
     S = next;
     if (token && !S.me) { token = null; store.del(TOKEN_KEY); }
+    adoptViewAs();
     if (wasOpen && S.phase === 'locked' && S.me) startLockAnimation();
     render();
   } catch { say('Can\'t reach the server. Retrying.'); }
+}
+
+// Group link: once the board is locked anyone with the site's URL can view it. Without a personal
+// token, the viewer says who they are and the card is shown for that player, read-only (picks are frozen,
+// and every write still needs the player's own token on the server).
+let viewAs = store.get(VIEWAS_KEY);
+const isGuest = () => !!S?.me?.guest;
+function adoptViewAs() {
+  if (S.me || S.phase !== 'locked' || !S.everyone) return;
+  const p = S.everyone.find((x) => x.id === viewAs);
+  if (p) S.me = { id: p.id, name: p.name, ready: true, picks: p.picks, guest: true };
 }
 
 const ledText = (v) => esc(v);
@@ -182,8 +195,10 @@ function moneyBoard(board) {
   if (!live.length) return panel('<p>No bets are on yet. A team turns on when one friend picks Over and another picks Under.</p>');
 
   // "Projected": what each player would win or lose if every team finishes at its projected win total.
+  // A team with neither a TeamRankings projection nor a pace (no games-played data) uses its current wins,
+  // so the marker never disappears just because a projection feed failed.
   const projBoard = S.seasonStarted
-    ? computeBoard({ lines: S.lines, players: allPlayers(), wins: expectedWins(S.wins, S.games ?? {}, S.projections ?? {}), cents: stake() })
+    ? computeBoard({ lines: S.lines, players: allPlayers(), wins: { ...S.wins, ...expectedWins(S.wins, S.games ?? {}, S.projections ?? {}) }, cents: stake() })
     : null;
   const hasToday = !!projBoard && projBoard.teams.some((t) => t.leader);
   const today = hasToday ? Object.fromEntries(projBoard.players.map((p) => [p.id, p.net])) : {};
@@ -231,14 +246,18 @@ function moneyBoard(board) {
       <ul class="mb-list">${rows}</ul>
     </div>
     <p class="mb-legend"><span><i class="mb-key mb-key--up"></i>Best case</span><span><i class="mb-key mb-key--down"></i>Worst case</span>${hasToday ? '<span><i class="mb-key mb-key--now"></i>Projected finish</span>' : ''}</p>
-    <p class="app-note">Worst case: every bet a player is in loses. Best case: every one wins. ${esc(formatMoney(stake()))} a team, and it moves as picks change.${hasToday ? ' Projected finish: each player\'s result if every team ends the season at its projected win total. ${esc(projNote())}' : ''}</p>`);
+    <p class="app-note">Worst case: every bet a player is in loses. Best case: every one wins. ${esc(formatMoney(stake()))} a team, and it moves as picks change.${hasToday ? ` Projected finish: each player's result if every team ends the season at its projected win total. ${esc(projNote())}` : ''}</p>`);
 }
 
 // Where the projected win totals came from, for the notes under the Money Board and Report.
 function projNote() {
   const m = S.projMeta ?? {};
   const have = Object.keys(S.projections ?? {}).length > 0;
-  if (!have) return "TeamRankings projections haven't loaded, so projections use each team's current win pace.";
+  if (!have) {
+    return Object.keys(S.games ?? {}).length
+      ? "TeamRankings projections haven't loaded, so projections use each team's current win pace."
+      : "TeamRankings projections and ESPN games played haven't loaded, so this uses each team's current win total.";
+  }
   const when = m.updatedAt ? new Date(m.updatedAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : null;
   return `Projected wins from TeamRankings${when ? `, updated ${when}` : ''}${m.error ? ' (showing the last good update)' : ''}.`;
 }
@@ -363,17 +382,31 @@ function renderRoster() {
 
 function render() {
   const joined = !!S.me;
-  $('join').hidden = joined;
+  const pickName = !joined && S.phase === 'locked' && !!S.everyone;
+  $('join').hidden = joined || pickName;
+  $('whoami').hidden = !pickName;
+  if (pickName) {
+    $('whoami-list').innerHTML = S.everyone.map((p) =>
+      `<button class="c99-pill" type="button" data-viewas="${esc(p.id)}">${esc(p.name)}</button>`).join('');
+  }
   $('game').hidden = !joined;
   renderRoster();
   $('sources').innerHTML = `Lines: ${esc(S.linesSource)} &middot; Wins: <a href="${esc(S.winsSourceUrl)}" rel="noopener">ESPN standings</a> &middot; Projections: <a href="${esc(S.projectionsSourceUrl)}" rel="noopener">TeamRankings</a> &middot; Bets are between friends`;
   if (!joined) return;
 
   document.title = `Pick'em: ${S.me.name}`;
-  const link = `${location.origin}/?me=${token}`;
-  if ($('mylink').value !== link) $('mylink').value = link;
-
   const locked = S.phase === 'locked';
+  // After the lock, everyone shares the plain site link. Before it, each player keeps a personal link.
+  const link = locked ? `${location.origin}/` : `${location.origin}/?me=${token}`;
+  if ($('mylink').value !== link) $('mylink').value = link;
+  $('mylink-label').textContent = locked ? 'Group link' : 'Your personal link';
+  $('mylink-note').textContent = locked
+    ? 'Share this with the group. Picks are locked, so anyone opening it just picks their name and sees the board. Nobody can change anything.'
+    : 'Bookmark it or email it to yourself to get back to your card on any device. Keep it private: anyone with it can act as you.';
+  $('bookmarklink').hidden = locked;
+  $('bookmark-hint').hidden = locked;
+  $('switchme').hidden = !isGuest();
+
   // The Group page can be hidden by the host (admin switch). Entries are untouched; it just isn't shown.
   if (!S.showGroup && view === 'group') view = locked ? 'payouts' : 'picks';
   if (locked && view === 'picks') view = S.showGroup ? 'group' : 'payouts';
@@ -405,6 +438,19 @@ function render() {
 }
 
 // ---- events ----
+$('whoami-list').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-viewas]');
+  if (!b) return;
+  viewAs = b.dataset.viewas; store.set(VIEWAS_KEY, viewAs);
+  adoptViewAs();
+  render();
+});
+$('switchme').addEventListener('click', () => {
+  viewAs = null; store.del(VIEWAS_KEY);
+  S.me = null;
+  render();
+});
+
 $('join-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   const err = $('join-error');
