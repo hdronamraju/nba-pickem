@@ -36,6 +36,15 @@
       </form>
     </section>
 
+    <!-- Group link: after the lock, a visitor without a personal link says who they are -->
+    <section id="whoami" class="c99-panel app-block" hidden aria-labelledby="whoami-h">
+      <header class="c99-panel__header"><span id="whoami-h">Who Are You?</span><span class="c99-panel__caret" aria-hidden="true"></span></header>
+      <div class="c99-panel__body">
+        <p class="app-note">Picks are locked. Tap your name to see your card and the board. Nothing can be changed from here.</p>
+        <div id="whoami-list" class="app-whoami"></div>
+      </div>
+    </section>
+
     <main id="game" hidden>
       <section class="c99-panel app-block" aria-labelledby="card-h">
         <header class="c99-panel__header"><span id="card-h">Your Card</span><span class="c99-panel__caret" aria-hidden="true"></span></header>
@@ -49,14 +58,15 @@
             <p id="stake-note" class="app-note"></p>
             <div id="lockbar"></div>
             <div class="app-mylink">
-              <label class="c99-label" for="mylink">Your personal link</label>
+              <label id="mylink-label" class="c99-label" for="mylink">Your personal link</label>
               <div class="app-mylink__row">
                 <input id="mylink" class="app-input app-input--link" readonly>
                 <button id="copylink" class="c99-pill" type="button">Copy</button>
               </div>
               <button id="bookmarklink" class="c99-pill app-bookmark" type="button">Bookmark my link</button>
               <p id="bookmark-hint" class="app-note" role="status" aria-live="polite"></p>
-              <p class="app-note">Bookmark it or email it to yourself to get back to your card on any device. Keep it private: anyone with it can act as you.</p>
+              <p id="mylink-note" class="app-note">Bookmark it or email it to yourself to get back to your card on any device. Keep it private: anyone with it can act as you.</p>
+              <button id="switchme" class="app-link" type="button" hidden>Not you? Pick another name</button>
             </div>
           </div>
         </div>

@@ -104,6 +104,8 @@ body{margin:0;background:radial-gradient(ellipse 80% 40% at 50% 0,var(--navy) 0,
 
 /* Personal link */
 .app-mylink{margin-top:var(--space-6)}
+.app-whoami{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:var(--space-3);margin-top:var(--space-4)}
+.app-whoami .c99-pill{width:100%;min-width:0;margin:0}
 .app-mylink__row{display:flex;gap:var(--space-3);align-items:center}
 .app-input--link{flex:1;min-width:0;width:auto;height:36px;text-align:left;font-size:13px;letter-spacing:0;font-family:var(--font-score);text-overflow:ellipsis}
 .app-mylink .c99-pill{min-width:84px;height:36px;margin-bottom:0;flex:none}

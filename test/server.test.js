@@ -92,7 +92,85 @@ test('with live picks off, picks stay hidden until the host locks', async (t) =>
   const after = (await s.call('GET', '/api/state', null, b)).body;
   assert.equal(after.phase, 'locked');
   assert.equal(after.everyone.length, 2);
+  // After the lock the plain site link shows the board to anyone (the group link).
+  assert.equal((await s.call('GET', '/api/state')).body.everyone.length, 2);
+});
+
+test('group link: after the lock anyone can view the board, but nobody can change anything without their token', async (t) => {
+  const s = await boot2(t);
+  const [a, b] = [await s.join('Ana'), await s.join('Bo')];
+  await s.pickAll(a, 'over'); await s.pickAll(b, 'under');
+  await s.ready(a); await s.ready(b);
+  const before = (await s.call('GET', '/api/state')).body;
+  assert.equal(before.everyone, null); // not before the lock
+  assert.equal((await s.call('GET', '/api/today')).status, 401);
+  assert.equal((await s.host('POST', '/api/admin/lock')).status, 200);
+
+  const guest = (await s.call('GET', '/api/state')).body;
+  assert.equal(guest.me, null);
+  assert.equal(guest.everyone.length, 2);
+  assert.equal(guest.everyone.find((p) => p.name === 'Bo').picks[TEAMS[0].team], 'under');
+  assert.equal(JSON.stringify(guest).includes(a) || JSON.stringify(guest).includes(b), false); // tokens never leak
+  assert.equal((await s.call('GET', '/api/today')).status, 200);
+
+  // Writes still need a token, and nobody new can join a locked board.
+  assert.equal((await s.call('PUT', '/api/picks', { team: TEAMS[0].team, side: 'under' })).status, 401);
+  assert.equal((await s.call('POST', '/api/ready', { ready: false })).status, 401);
+  assert.equal((await s.call('POST', '/api/join', { name: 'Cy' })).status, 403);
+  const saved = s.app.state();
+  assert.equal(saved.players.length, 2);
+  assert.equal(saved.players.find((p) => p.name === 'Ana').picks[TEAMS[0].team], 'over');
+
+  // Personal links keep working after the lock.
+  assert.equal((await s.call('GET', '/api/state', null, a)).body.me.name, 'Ana');
+
+  // Unlocking closes the group link again.
+  assert.equal((await s.host('POST', '/api/admin/unlock')).status, 200);
   assert.equal((await s.call('GET', '/api/state')).body.everyone, null);
+});
+
+test('an existing save loads untouched: players, tokens, picks, lock and history all survive a restart', async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pickem-'));
+  const file = path.join(dir, 'state.json');
+  const saved = {
+    players: [
+      { id: 'aa11', token: 'tok-ana', name: 'Ana', picks: { [TEAMS[0].team]: 'over' }, ready: true, joinedAt: 1 },
+      { id: 'bb22', token: 'tok-bo', name: 'Bo', picks: { [TEAMS[0].team]: 'under' }, ready: true, joinedAt: 2 },
+    ],
+    lines: TEAMS, linesSource: 'Hoops Junkie', phase: 'locked', lockedAt: 123,
+    settings: { showPicks: false, seasonStarted: true, showGroup: true },
+    wins: { [TEAMS[0].team]: 10 }, winsMeta: { updatedAt: Date.now(), lastAttempt: Date.now(), error: null },
+    history: [{ date: '2026-11-20', players: {}, teams: {} }],
+  };
+  fs.writeFileSync(file, JSON.stringify(saved));
+  const app = createApp({ dataFile: file, adminPassword: 'pw', fetchProjections: async () => ({}) });
+  await new Promise((r) => app.server.listen(0, r));
+  t.after(() => app.server.close());
+  const base = `http://localhost:${app.server.address().port}`;
+  const st = await (await fetch(`${base}/api/state`, { headers: { 'x-token': 'tok-ana' } })).json();
+  assert.equal(st.me.name, 'Ana');
+  assert.equal(st.everyone.length, 2);
+  await fetch(`${base}/api/admin/settings`, { method: 'PUT', headers: { 'x-admin-password': 'pw', 'content-type': 'application/json' }, body: JSON.stringify({ showGroup: true }) });
+  const after = JSON.parse(fs.readFileSync(file, 'utf8'));
+  assert.deepEqual(after.players, saved.players);
+  assert.equal(after.phase, 'locked');
+  assert.equal(after.lockedAt, 123);
+  assert.deepEqual(after.wins, saved.wins);
+  assert.deepEqual(after.history, saved.history);
+});
+
+test('admin status reports how the ESPN and TeamRankings fetches are doing', async (t) => {
+  const s = await boot2(t, {
+    fetchStandings: async () => ({ wins: { 'Boston Celtics': 3 }, games: { 'Boston Celtics': 4 } }),
+    fetchProjections: async () => { throw new Error('TeamRankings responded 403'); },
+  });
+  await s.app.refreshWins({ force: true });
+  const f = (await s.host('GET', '/api/admin/status')).body.feeds;
+  assert.equal(f.winsTeams, 1);
+  assert.equal(f.gamesTeams, 1);
+  assert.equal(f.winsError, null);
+  assert.equal(f.projTeams, 0);
+  assert.match(f.projError, /403/);
 });
 
 test('only the host can lock, and only when 2+ players are all ready', async (t) => {
@@ -311,7 +389,7 @@ test("today's games are cached and ESPN errors keep the last good list", async (
   let calls = 0; let fail = false; let clock = 1_000_000;
   const g = [{ id: '1', state: 'pre', detail: '7 PM', home: 'Boston Celtics', away: 'Miami Heat', homeScore: null, awayScore: null }];
   const s = await boot2(t, { now: () => clock, fetchScoreboard: async () => { calls += 1; if (fail) throw new Error('down'); return g; } });
-  assert.equal((await s.call('GET', '/api/today')).status, 401); // joined players only
+  assert.equal((await s.call('GET', '/api/today')).status, 401); // joined players only, until the lock
   const a = await s.join('Al');
   assert.deepEqual((await s.call('GET', '/api/today', undefined, a)).body.games, g);
   await s.call('GET', '/api/today', undefined, a);
